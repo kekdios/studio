@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReelEnder — Writers' Room</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; background:#0a0a0f; color:#eee; font-family:-apple-system,system-ui,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid #1c1c26; }
+  header img { height:36px; }
+  header h1 { font-size:1rem; font-weight:600; margin:0; }
+  header .sub { color:#777; font-size:.8rem; }
+  #balance { margin-left:auto; font-size:.75rem; color:#666; }
+  #newSession { margin-left:10px; background:#1c1c26; border:1px solid #333; color:#aaa; font-size:.72rem; padding:4px 10px; border-radius:6px; cursor:pointer; }
+  #newSession:hover { color:#fff; border-color:#555; }
+
+  #transcript { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:760px; width:100%; margin:0 auto; }
+  .turn { max-width:85%; padding:10px 14px; border-radius:14px; line-height:1.45; font-size:.95rem; white-space:pre-wrap; }
+  .turn .who { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; opacity:.55; display:flex; gap:8px; align-items:center; }
+  .user { align-self:flex-end; background:#1e3a5f; }
+  .assistant { align-self:flex-start; background:#1c1c26; }
+  .replay { cursor:pointer; opacity:.6; font-size:.85rem; }
+  .replay:hover { opacity:1; }
+  .cost { font-size:.65rem; opacity:.45; }
+
+  #controls { border-top:1px solid #1c1c26; padding:16px 20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  #status { font-size:.8rem; color:#888; min-height:1.2em; }
+  #mic { width:72px; height:72px; border-radius:50%; border:none; cursor:pointer; font-size:1.7rem; background:linear-gradient(135deg,#ff7a18,#e2483d); color:#fff; transition:transform .1s, box-shadow .2s; }
+  #mic:hover { transform:scale(1.05); }
+  #mic.recording { background:linear-gradient(135deg,#3ddc84,#1fa); box-shadow:0 0 0 8px rgba(61,220,132,.15); animation:pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow:0 0 0 14px rgba(61,220,132,.07); } }
+  #textRow { display:flex; gap:8px; width:100%; max-width:560px; }
+  #textRow input { flex:1; background:#1c1c26; border:1px solid #333; border-radius:8px; color:#eee; padding:8px 12px; font-size:.9rem; }
+  #textRow button { background:#2a2a3a; border:1px solid #444; color:#ddd; padding:8px 14px; border-radius:8px; cursor:pointer; }
+</style>
+</head>
+<body>
+<header>
+  <img src="/reelenderlogosq.png" alt="">
+  <div><h1>Writers' Room</h1><div class="sub">develop the script with your producer</div></div>
+  <span id="balance"></span>
+  <button id="newSession">new session</button>
+</header>
+
+<div id="transcript"></div>
+
+<div id="controls">
+  <div id="status">press the mic and pitch your idea</div>
+  <button id="mic">🎙</button>
+  <div id="textRow">
+    <input id="textInput" placeholder="…or type it instead" />
+    <button id="sendText">send</button>
+  </div>
+</div>
+
+<script>
+const transcriptEl = document.getElementById('transcript');
+const statusEl = document.getElementById('status');
+const micBtn = document.getElementById('mic');
+let recorder = null, chunks = [], recording = false;
+
+function setStatus(s) { statusEl.textContent = s; }
+
+function renderTurn(e) {
+  const div = document.createElement('div');
+  div.className = 'turn ' + (e.role === 'user' ? 'user' : 'assistant');
+  const who = document.createElement('div');
+  who.className = 'who';
+  who.textContent = e.role === 'user' ? 'you' : 'producer';
+  if (e.audio && e.role === 'assistant') {
+    const r = document.createElement('span');
+    r.className = 'replay'; r.textContent = '▶';
+    r.onclick = () => new Audio(e.audio).play();
+    who.appendChild(r);
+  }
+  if (e.cost) {
+    const c = document.createElement('span');
+    c.className = 'cost'; c.textContent = '$' + Number(e.cost).toFixed(4);
+    who.appendChild(c);
+  }
+  div.appendChild(who);
+  div.appendChild(document.createTextNode(e.text));
+  transcriptEl.appendChild(div);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
+async function loadTranscript() {
+  const turns = await (await fetch('/api/transcript')).json();
+  turns.forEach(renderTurn);
+  if (turns.length) setStatus('pick up where you left off — or start a new session');
+}
+
+async function loadBalance() {
+  try {
+    const b = await (await fetch('/api/balance')).json();
+    if (b.usd_spendable_balance != null)
+      document.getElementById('balance').textContent = 'nano-gpt balance: $' + Number(b.usd_spendable_balance).toFixed(2);
+  } catch {}
+}
+
+async function sendTurn(body, headers) {
+  setStatus('transcribing… thinking…');
+  const res = await fetch('/api/turn', { method: 'POST', headers, body });
+  const data = await res.json();
+  if (!res.ok) { setStatus('error: ' + (data.error || res.status)); return; }
+  if (data.userText) renderTurn({ role:'user', text:data.userText });
+  if (data.replyText) {
+    renderTurn({ role:'assistant', text:data.replyText, audio:data.audioUrl, cost:data.cost });
+    setStatus('producer is speaking…');
+    const a = new Audio(data.audioUrl);
+    a.onended = () => setStatus('your turn');
+    a.onerror = () => setStatus('your turn');
+    a.play();
+  } else setStatus('your turn');
+  loadBalance();
+}
+
+micBtn.onclick = async () => {
+  if (recording) { recorder.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    chunks = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = async () => {
+      recording = false; micBtn.classList.remove('recording'); micBtn.textContent = '🎙';
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      if (blob.size < 500) { setStatus('too short — try again'); return; }
+      await sendTurn(blob, { 'Content-Type': blob.type });
+    };
+    recorder.start();
+    recording = true; micBtn.classList.add('recording'); micBtn.textContent = '⏹';
+    setStatus('listening… press again when done');
+  } catch (e) {
+    setStatus('mic access denied — allow microphone or type instead');
+  }
+};
+
+document.getElementById('sendText').onclick = () => {
+  const inp = document.getElementById('textInput');
+  if (!inp.value.trim()) return;
+  sendTurn(JSON.stringify({ text: inp.value }), { 'Content-Type': 'application/json' });
+  inp.value = '';
+};
+document.getElementById('textInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('sendText').click();
+});
+
+document.getElementById('newSession').onclick = async () => {
+  if (!confirm('Start a fresh session? The current transcript is archived.')) return;
+  await fetch('/api/session/new', { method: 'POST' });
+  transcriptEl.innerHTML = '';
+  setStatus('clean page — pitch your idea');
+};
+
+loadTranscript();
+loadBalance();
+</script>
+</body>
+</html>

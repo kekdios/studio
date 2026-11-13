@@ -1,0 +1,6 @@
+{
+  "producer_brain": "anthropic/claude-sonnet-5.5",
+  "stt": "Whisper-Large-V3",
+  "tts": "gpt-4o-mini-tts",
+  "tts_voice": "onyx"
+}

@@ -1,0 +1,26 @@
+{
+  "name": "reelender-studio",
+  "version": "0.1.0",
+  "description": "**A film studio where the entire crew is software — you're the director with final cut.**",
+  "main": "server/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kekdios/studio.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kekdios/studio/issues"
+  },
+  "homepage": "https://github.com/kekdios/studio#readme",
+  "dependencies": {
+    "express": "^5.3.0"
+  }
+}

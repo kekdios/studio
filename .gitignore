@@ -1,4 +1,5 @@
 .secrets/
+projects/
 node_modules/
 out/
 dist/

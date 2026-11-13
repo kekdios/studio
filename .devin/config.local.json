@@ -25,7 +25,12 @@
       "Exec(git commit)",
       "Exec(touch)",
       "Exec(true)",
-      "Exec(git check-ignore)"
+      "Exec(git check-ignore)",
+      "Exec(chmod)",
+      "Exec(node)",
+      "Exec(npm init)",
+      "Exec(strings)",
+      "Exec(pkill)"
     ]
   }
 }
