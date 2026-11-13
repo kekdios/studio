@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReelEnder — Sign in</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#0a0a0f; color:#eee; font-family:-apple-system,system-ui,sans-serif; }
+  img { width:180px; border-radius:20px; }
+  h1 { font-size:1.3rem; font-weight:600; margin:1.4rem 0 .3rem; background:linear-gradient(90deg,#ff7a18,#3ddc84); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  p.sub { color:#777; font-size:.85rem; margin:0 0 1.6rem; }
+  form { display:flex; flex-direction:column; gap:10px; width:260px; }
+  input { background:#1c1c26; border:1px solid #333; border-radius:8px; color:#eee; padding:10px 12px; font-size:.95rem; }
+  button { background:linear-gradient(135deg,#ff7a18,#e2483d); border:none; color:#fff; padding:10px; border-radius:8px; font-size:.95rem; font-weight:600; cursor:pointer; }
+  #err { color:#e2483d; font-size:.8rem; min-height:1em; }
+</style>
+</head>
+<body>
+  <img src="/reelenderlogosq.png" alt="ReelEnder">
+  <h1>ReelEnder Studio</h1>
+  <p class="sub">the writers' room is private</p>
+  <form id="f">
+    <input id="pw" type="password" placeholder="passphrase" autocomplete="current-password" autofocus>
+    <button type="submit">enter</button>
+  </form>
+  <p id="err"></p>
+<script>
+document.getElementById('f').onsubmit = async (e) => {
+  e.preventDefault();
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: document.getElementById('pw').value }),
+  });
+  if (res.ok) location.href = '/';
+  else document.getElementById('err').textContent = 'wrong passphrase';
+};
+</script>
+</body>
+</html>

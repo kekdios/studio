@@ -15,12 +15,67 @@ const TRANSCRIPT = path.join(SESSION_DIR, 'transcript.jsonl');
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 
 const app = express();
+app.set('trust proxy', true);
 app.use(express.json({ limit: '5mb' }));
+
+// --- auth: passphrase login + session cookie (single-user studio) ---
+const crypto = require('crypto');
+const APP_PASSWORD = fs.readFileSync(path.join(ROOT, '.secrets', 'app-password'), 'utf8').trim();
+const SESSIONS_FILE = path.join(ROOT, '.secrets', 'sessions.json');
+let sessions = new Set();
+try { sessions = new Set(JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'))); } catch {}
+const saveSessions = () => fs.writeFileSync(SESSIONS_FILE, JSON.stringify([...sessions]));
+const loginFails = new Map(); // ip -> {count, until}
+
+function cookieToken(req) {
+  const m = (req.headers.cookie || '').match(/(?:^|;\s*)session=([a-f0-9]+)/);
+  return m ? m[1] : null;
+}
+
+app.use((req, res, next) => {
+  const open = req.path === '/login' || req.path === '/api/login'
+    || req.path === '/reelenderlogo.png' || req.path === '/reelenderlogosq.png';
+  if (open) return next();
+  const token = cookieToken(req);
+  if (token && sessions.has(token)) return next();
+  if (req.path.startsWith('/api/') || req.path.startsWith('/audio/')) return res.status(401).json({ error: 'sign in required' });
+  res.redirect('/login');
+});
+
+app.get('/login', (req, res) => res.sendFile(path.join(ROOT, 'public', 'login.html')));
+
+app.post('/api/login', (req, res) => {
+  const ip = req.ip;
+  const f = loginFails.get(ip) || { count: 0, until: 0 };
+  if (Date.now() < f.until) return res.status(429).json({ error: 'too many attempts' });
+  if (req.body?.password !== APP_PASSWORD) {
+    f.count++; f.until = f.count >= 5 ? Date.now() + 15 * 60 * 1000 : 0;
+    loginFails.set(ip, f);
+    return res.status(401).json({ error: 'wrong passphrase' });
+  }
+  loginFails.delete(ip);
+  const token = crypto.randomBytes(24).toString('hex');
+  sessions.add(token);
+  saveSessions();
+  const secure = req.secure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Lax; Max-Age=2592000; Path=/${secure}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/logout', (req, res) => {
+  const token = cookieToken(req);
+  if (token) { sessions.delete(token); saveSessions(); }
+  res.setHeader('Set-Cookie', 'session=; HttpOnly; Max-Age=0; Path=/');
+  res.json({ ok: true });
+});
+// --- end auth ---
+
 app.use(express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '25mb' }));
 app.use(express.static(path.join(ROOT, 'public')));
 app.use('/audio', express.static(AUDIO_DIR));
 
 const PORT = process.env.PORT || 3100;
+const HOST = process.env.HOST || '127.0.0.1';
 
 function appendTurn(role, text, extra = {}) {
   const entry = { ts: new Date().toISOString(), role, text, ...extra };
@@ -98,4 +153,4 @@ app.get('/api/balance', async (req, res) => {
   try { res.json(await ng.balance()); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.listen(PORT, () => console.log(`writers' room: http://localhost:${PORT}`));
+app.listen(PORT, HOST, () => console.log(`writers' room: http://${HOST}:${PORT}`));
