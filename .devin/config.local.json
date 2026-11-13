@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Exec(python3)",
+      "Exec(ls)",
+      "Exec(plutil)",
+      "Exec(npx)",
+      "Exec(cat)",
+      "Exec(mkdir)",
+      "Exec(cp)",
+      "Exec(git init)",
+      "Exec(curl)",
+      "Exec(head)",
+      "Exec(dig)",
+      "Exec(ssh)",
+      "Exec(cut)",
+      "Exec(sleep)",
+      "Exec(file)"
+    ]
+  }
+}
