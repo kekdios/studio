@@ -21,7 +21,8 @@
       "Exec(git add)",
       "Exec(gh auth)",
       "Exec(git credential-osxkeychain)",
-      "Exec(scp)"
+      "Exec(scp)",
+      "Exec(git commit)"
     ]
   }
 }
