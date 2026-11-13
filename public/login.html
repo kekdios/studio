@@ -12,28 +12,70 @@
   form { display:flex; flex-direction:column; gap:10px; width:260px; }
   input { background:#1c1c26; border:1px solid #333; border-radius:8px; color:#eee; padding:10px 12px; font-size:.95rem; }
   button { background:linear-gradient(135deg,#ff7a18,#e2483d); border:none; color:#fff; padding:10px; border-radius:8px; font-size:.95rem; font-weight:600; cursor:pointer; }
+  button.ghost { background:#1c1c26; border:1px solid #333; color:#888; font-weight:400; font-size:.8rem; }
   #err { color:#e2483d; font-size:.8rem; min-height:1em; }
+  #msg { color:#3ddc84; font-size:.8rem; min-height:1em; }
+  #codeStep { display:none; }
+  details { margin-top:1.2rem; font-size:.75rem; color:#555; width:260px; }
+  details summary { cursor:pointer; }
+  details form { margin-top:8px; }
 </style>
 </head>
 <body>
   <img src="/reelenderlogosq.png" alt="ReelEnder">
   <h1>ReelEnder Studio</h1>
-  <p class="sub">the writers' room is private</p>
-  <form id="f">
-    <input id="pw" type="password" placeholder="passphrase" autocomplete="current-password" autofocus>
+  <p class="sub">sign in to the writers' room</p>
+
+  <form id="emailStep">
+    <input id="email" type="email" placeholder="your email" autocomplete="email" required>
+    <button type="submit">send me a code</button>
+  </form>
+
+  <form id="codeStep">
+    <input id="code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code" required>
     <button type="submit">enter</button>
   </form>
+
+  <p id="msg"></p>
   <p id="err"></p>
+
+  <details>
+    <summary>have a passphrase instead?</summary>
+    <form id="pwStep">
+      <input id="pw" type="password" placeholder="passphrase" autocomplete="current-password">
+      <button type="submit">enter with passphrase</button>
+    </form>
+  </details>
+
 <script>
-document.getElementById('f').onsubmit = async (e) => {
-  e.preventDefault();
-  const res = await fetch('/api/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: document.getElementById('pw').value }),
-  });
+const err = m => document.getElementById('err').textContent = m;
+const msg = m => document.getElementById('msg').textContent = m;
+const post = (u, b) => fetch(u, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b) });
+
+document.getElementById('emailStep').onsubmit = async (e) => {
+  e.preventDefault(); err(''); msg('sending…');
+  const res = await post('/api/otp/request', { email: document.getElementById('email').value });
+  const data = await res.json();
+  if (res.ok) {
+    msg('code sent — check your email (expires in 10 min)');
+    document.getElementById('emailStep').style.display = 'none';
+    document.getElementById('codeStep').style.display = 'flex';
+    document.getElementById('code').focus();
+  } else { msg(''); err(data.error || 'could not send'); }
+};
+
+document.getElementById('codeStep').onsubmit = async (e) => {
+  e.preventDefault(); err('');
+  const res = await post('/api/otp/verify', { email: document.getElementById('email').value, code: document.getElementById('code').value });
   if (res.ok) location.href = '/';
-  else document.getElementById('err').textContent = 'wrong passphrase';
+  else err((await res.json()).error || 'nope');
+};
+
+document.getElementById('pwStep').onsubmit = async (e) => {
+  e.preventDefault(); err('');
+  const res = await post('/api/login', { password: document.getElementById('pw').value });
+  if (res.ok) location.href = '/';
+  else err('wrong passphrase');
 };
 </script>
 </body>

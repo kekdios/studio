@@ -22,6 +22,12 @@ app.use(express.json({ limit: '5mb' }));
 const crypto = require('crypto');
 const APP_PASSWORD = fs.readFileSync(path.join(ROOT, '.secrets', 'app-password'), 'utf8').trim();
 const SESSIONS_FILE = path.join(ROOT, '.secrets', 'sessions.json');
+const OTP_FILE = path.join(ROOT, '.secrets', 'otp.json');
+const RESEND_FILE = path.join(ROOT, '.secrets', 'resend');
+const ALLOWED_FILE = path.join(ROOT, '.secrets', 'allowed-emails');
+const readSecretFile = p => { try { return fs.readFileSync(p, 'utf8').trim(); } catch { return ''; } };
+const allowedEmails = () => readSecretFile(ALLOWED_FILE).split('\n').map(s => s.trim().toLowerCase()).filter(Boolean);
+const SESSION_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
 let sessions = new Set();
 try { sessions = new Set(JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'))); } catch {}
 const saveSessions = () => fs.writeFileSync(SESSIONS_FILE, JSON.stringify([...sessions]));
@@ -34,6 +40,7 @@ function cookieToken(req) {
 
 app.use((req, res, next) => {
   const open = req.path === '/login' || req.path === '/api/login'
+    || req.path === '/api/otp/request' || req.path === '/api/otp/verify'
     || req.path === '/reelenderlogo.png' || req.path === '/reelenderlogosq.png';
   if (open) return next();
   const token = cookieToken(req);
@@ -58,9 +65,76 @@ app.post('/api/login', (req, res) => {
   sessions.add(token);
   saveSessions();
   const secure = req.secure ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Lax; Max-Age=2592000; Path=/${secure}`);
+  res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Lax; Max-Age=${SESSION_MAX_AGE}; Path=/${secure}`);
   res.json({ ok: true });
 });
+
+// --- OTP login via Resend ---
+function loadOtps() { try { return JSON.parse(fs.readFileSync(OTP_FILE, 'utf8')); } catch { return {}; } }
+function saveOtps(o) { fs.writeFileSync(OTP_FILE, JSON.stringify(o)); }
+
+function resendConfig() {
+  const raw = readSecretFile(RESEND_FILE);
+  const get = k => { const m = raw.match(new RegExp(`^${k}=(.*)$`, 'm')); return m ? m[1].trim() : ''; };
+  return { key: get('RESEND_API_KEY'), domain: get('DOMAIN') };
+}
+
+async function sendOtpEmail(to, code) {
+  const { key, domain } = resendConfig();
+  if (!key) throw new Error('resend not configured');
+  const from = `ReelEnder Studio <login@${domain || 'resend.dev'}>`;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject: `${code} — your ReelEnder sign-in code`,
+      text: `Your ReelEnder Studio sign-in code is ${code}. It expires in 10 minutes.`,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`resend ${res.status}: ${JSON.stringify(data).slice(0, 200)}`);
+}
+
+const otpRequests = new Map(); // rate limit: email -> timestamps
+app.post('/api/otp/request', async (req, res) => {
+  try {
+    const email = (req.body?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email required' });
+    if (!allowedEmails().includes(email)) return res.status(403).json({ error: 'not on the guest list' });
+    const now = Date.now();
+    const recent = (otpRequests.get(email) || []).filter(t => now - t < 60 * 60 * 1000);
+    if (recent.length >= 5) return res.status(429).json({ error: 'too many codes requested — wait a bit' });
+    recent.push(now); otpRequests.set(email, recent);
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    const otps = loadOtps();
+    otps[email] = { code, expires: now + 10 * 60 * 1000, attempts: 0 };
+    saveOtps(otps);
+    await sendOtpEmail(email, code);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'could not send code' });
+  }
+});
+
+app.post('/api/otp/verify', (req, res) => {
+  const email = (req.body?.email || '').trim().toLowerCase();
+  const code = (req.body?.code || '').trim();
+  const otps = loadOtps();
+  const entry = otps[email];
+  if (!entry || Date.now() > entry.expires) return res.status(401).json({ error: 'code expired — request a new one' });
+  if (entry.attempts >= 5) { delete otps[email]; saveOtps(otps); return res.status(429).json({ error: 'too many tries — request a new code' }); }
+  if (entry.code !== code) { entry.attempts++; saveOtps(otps); return res.status(401).json({ error: 'wrong code' }); }
+  delete otps[email]; saveOtps(otps);
+  const token = crypto.randomBytes(24).toString('hex');
+  sessions.add(token); saveSessions();
+  const secure = req.secure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Lax; Max-Age=${SESSION_MAX_AGE}; Path=/${secure}`);
+  res.json({ ok: true });
+});
+// --- end OTP ---
 
 app.post('/api/logout', (req, res) => {
   const token = cookieToken(req);
