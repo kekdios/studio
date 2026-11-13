@@ -15,7 +15,12 @@
       "Exec(ssh)",
       "Exec(cut)",
       "Exec(sleep)",
-      "Exec(file)"
+      "Exec(file)",
+      "Exec(git remote)",
+      "Exec(git grep)",
+      "Exec(git add)",
+      "Exec(gh auth)",
+      "Exec(git credential-osxkeychain)"
     ]
   }
 }
