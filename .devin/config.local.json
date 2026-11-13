@@ -22,7 +22,10 @@
       "Exec(gh auth)",
       "Exec(git credential-osxkeychain)",
       "Exec(scp)",
-      "Exec(git commit)"
+      "Exec(git commit)",
+      "Exec(touch)",
+      "Exec(true)",
+      "Exec(git check-ignore)"
     ]
   }
 }
