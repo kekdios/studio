@@ -40,12 +40,13 @@ Your browser talks to the back office, the back office talks to the AI models. N
 Get the skeleton running *on this Mac first* (faster to build and test than on the server): the web page, the back office, an empty pipeline that can walk through the stages with placeholder work.
 
 ### Phase 2 — The producer's brain
-Connect the AI service. Give a strong chat model a permanent "job description" that turns it into a competent line producer — it speaks film (shot sizes, camera moves, coverage, pacing), knows it spends real money, and never advances past a checkpoint you haven't approved. This same brain writes scripts, picks which AI model does each job, and translates your notes like "redo shot 5, tighter" into new instructions for the video models.
+Connect the AI service. Give a strong chat model a permanent "job description" that turns it into a competent line producer — it speaks film (shot sizes, camera moves, coverage, pacing), knows it spends real money, and never advances past a checkpoint you haven't approved. The brain works in two modes: **collaborator** in the writers' room (a creative writing partner who develops the idea with you, asks questions, pushes back) and **executor** in the pipeline (writes shot lists, picks which AI model does each job, translates "redo shot 5, tighter" into new instructions for the video models).
 
-### Phase 3 — The seven checkpoints
+### Phase 3 — The checkpoints
 Build the actual workflow — the app can only move forward when you approve each gate:
 
-1. **Script** — it drafts 2–3 different takes on tone; you pick one; it writes the full script + shot list
+0. **The writers' room** — before anything is generated, you and the AI develop the idea together in conversation. Bat the concept around, try tones, shape characters, argue about dialogue — a real collaboration, not a one-shot generation. Nothing is rendered and nothing is spent during this phase. When the script feels right, you say "lock it."
+1. **Script lock & shot list** — the app formalizes your agreed script into a structured shot list (every shot: location, cast, camera move, dialogue, sound). You approve it — this is the cheapest moment to change your mind.
 2. **The look** — character sheets and style frames; once locked, every shot uses them as reference so faces stay consistent
 3. **Rough cut** — a cheap animatic to check pacing before real money gets spent
 4. **Dailies** — each shot rendered 2–3 takes; you pick or say "redo" in plain words
@@ -69,7 +70,7 @@ A real, cheap test run end-to-end — something like a 15-second scene with 3 sh
 
 ## What your job looks like once it's live
 
-Pitch idea → get pinged → pick a script → get pinged → approve character designs → get pinged → approve the rough cut → get pinged per scene for dailies → cast the voices → approve the mix → approve the final. Between pings, you do nothing — the app is rendering, retrying failures, and organizing files. Because it runs on a server, it keeps working when your laptop is closed — you can approve dailies from your phone.
+Develop the idea with the AI in the writers' room, at your own pace → lock the script → approve the shot list → get pinged → approve character designs → get pinged → approve the rough cut → get pinged per scene for dailies → cast the voices → approve the mix → approve the final. Between pings, you do nothing — the app is rendering, retrying failures, and organizing files. Because it runs on a server, it keeps working when your laptop is closed — you can approve dailies from your phone.
 
 ## The honest fine print (kept from the original document)
 

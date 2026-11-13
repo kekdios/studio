@@ -8,8 +8,8 @@ Live (eventually) at [reelender.com](https://reelender.com).
 
 ## How it works
 
-- **You pitch.** One sentence — *"a travel vlogger interviews King Leonidas at Thermopylae, shot handheld like a war documentary, 48 seconds."*
-- **You approve at 7 checkpoints.** Script → character designs → rough cut → dailies → voices → the mix → final cut. The app cannot spend money past a checkpoint you haven't approved.
+- **You collaborate.** Start in the writers' room — develop the idea with the AI in conversation, shape the story together, then lock the script.
+- **You approve at the checkpoints.** Shot list → character designs → rough cut → dailies → voices → the mix → final cut. The app cannot spend money past a checkpoint you haven't approved.
 - **The app produces.** It casts the right AI model for each job via the [nano-gpt](https://nano-gpt.com) API — one model for landscapes, one for crowds, one for keeping faces consistent, one for voices, one for sound — submits the work, waits for renders, retries failures, and keeps the books.
 - **You get the film.** Plus a vertical cut for Shorts/TikTok, a thumbnail, subtitles, and a receipt showing what every shot cost.
 
