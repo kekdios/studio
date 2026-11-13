@@ -29,7 +29,7 @@ Your browser talks to the back office, the back office talks to the AI models. N
 
 ## What's already done
 
-- [x] **Rented the server** — smallest DigitalOcean droplet ($4/month), Ubuntu Linux, named `reelender`, at `64.23.164.35`
+- [x] **Rented the server** — smallest DigitalOcean droplet ($4/month), Ubuntu Linux, named `reelender`, answering at `reelender.com`
 - [x] **Pointed the domain** — `reelender.com` and `www.reelender.com` resolve to it
 - [x] **Keys and secrets** — DigitalOcean access token staged and hidden (gitignored), SSH access to the server confirmed
 - [x] **Brand assets** — ReelEnder logos copied into the project
