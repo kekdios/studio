@@ -8,66 +8,70 @@
 
 ## The big idea in one paragraph
 
-We're building a **joke factory** at **reelender.com**. An AI scout hunts the internet for short, funny jokes — one-liners and setup-punchlines — and brings them to you. You hear them, then accept or reject; both lists are kept forever so jokes never repeat. Accepted jokes get read aloud in Jacob's voice, placed in a setting, and turned into a short video of Jacob telling the joke. Same guy every time. The videos get posted to social media. Simple loop, thousands of jokes.
+We've built a **joke factory** at **reelender.com**. An AI scout hunts the internet for short, funny jokes — one-liners and setup-punchlines — and brings them to you. You hear them, then accept or reject; both lists are kept forever so jokes never repeat. Accepted jokes get read aloud in Jacob's voice, placed in a setting, and turned into a short video of Jacob telling the joke. Same guy every time. The videos get posted to social media. Simple loop, thousands of jokes.
 
 ## How it works, no jargon
 
 The app is two halves:
 
-- **The front room** — a web page you see in your browser. This is where you approve things: pick a script take, choose a character design, watch dailies, cast voices.
-- **The back office** — a small program running on the same server that does the actual work: talks to the AI services, waits for renders to finish, organizes files, keeps the books.
+- **The front room** — a web page you see in your browser (and on your phone). Where you hear jokes and decide what makes the cut.
+- **The back office** — a small program on our server that does the work: talks to the AI services, waits for renders, files every joke into the right pile, keeps the books.
 
-Your browser talks to the back office, the back office talks to the AI models. Nobody else can reach the back office — it'll live behind a login.
+Your browser talks to the back office, the back office talks to the AI models. Nobody else can reach the back office — it's behind an email-code login.
 
 ## Where things live
 
 | Thing | Where |
 |---|---|
-| The app (while we build it) | This Mac, `/Users/private/studio` |
-| The app (when it ships) | A rented server ("droplet") at DigitalOcean |
-| The address | `reelender.com` — already pointing at the server |
-| Each film's files | A folder per project — script, images, video takes, audio, final cut |
-| The records | A state file per project + a spending ledger |
+| The app | Live on our DigitalOcean droplet at `reelender.com` |
+| The code | This Mac, `/Users/private/studio` — deployed to the server when we change it |
+| The joke vault | `accepted.jsonl` + `rejected.jsonl` + `pending.json` on the server — the permanent record |
+| Voice + joke audio | Saved next to the vault, replayable any time |
+| The books | Every API call logs its cost; nano-gpt balance shows in the header |
 
 ## What's already done
 
-- [x] **Rented the server** — smallest DigitalOcean droplet ($4/month), Ubuntu Linux, named `reelender`, answering at `reelender.com`
-- [x] **Pointed the domain** — `reelender.com` and `www.reelender.com` resolve to it
-- [x] **Keys and secrets** — DigitalOcean access token staged and hidden (gitignored), SSH access to the server confirmed
-- [x] **Brand assets** — ReelEnder logos copied into the project
+- [x] **The server** — $4/month DigitalOcean droplet, Ubuntu, named `reelender`
+- [x] **The domain** — `reelender.com` + `www` live, HTTPS padlock via Caddy
+- [x] **The joke room** — voice-first page: you talk, Whisper hears you, the scout answers in your chosen ElevenLabs voice. Works on the phone.
+- [x] **Sign-in** — email → 6-digit code via Resend → logged in for 7 days. Passphrase as backup. Only your email gets in.
+- [x] **The scout** — searches the real web (`:online`), brings back joke candidates as cards: **hear it / keep / toss**. Shaped by whatever direction you give it in conversation.
+- [x] **The vault** — accepted + rejected lists, kept forever. Seen jokes never come back.
+- [x] **Keys and secrets** — all staged locally, gitignored, mirrored on the server. Nothing sensitive in the public repo.
 
 ## The build phases
 
 ### Phase 1 — The joke room ✅ *(live)*
-The room where you and the AI curate jokes. Built as the "writers' room" — voice conversation, OTP login, live at reelender.com. The scout searches the web for jokes and brings candidates; you hear each one read aloud and tap **keep** or **toss**. Both lists are kept forever — a joke once seen is never offered again.
+Voice conversation, OTP login, scout button, joke cards, the vault, web search. Done and on your phone.
 
-### Phase 2 — Lock Jacob
-The whole product depends on Jacob being the same Jacob every day: one face, one outfit, one voice. Generate a character sheet (front + profile, the outfit, the look) and cast his voice — you approve both. These become the reference every video is built from. This is the single most important step for a believable daily character.
+### Phase 2 — Lock Jacob *(next)*
+The whole product depends on Jacob being the same Jacob every day: one face, one outfit, one voice. Generate a character sheet (front + profile, outfit, look) and cast his voice — you approve both. His voice may or may not be the scout's voice; worth deciding whether the character should sound different from your assistant. These become the references every video is built from.
 
 ### Phase 3 — The joke machine
-The repeatable loop for every accepted joke: joke text → Jacob's voice reads it → a video model puts Jacob in a setting, lip-synced to the audio → a short clip ready for social. Same pipeline every time; only the joke and the backdrop change.
+The repeatable loop for every accepted joke: joke text → Jacob's voice reads it → a video model puts Jacob in a setting, lip-synced to the audio → a short clip ready for social. Same pipeline every time; only the joke and the backdrop change. The voice half is already working — this phase is the video half plus assembly.
 
 ### Phase 4 — Post it
 Vertical format for TikTok/Reels/Shorts, captions burned in (jokes land better muted), a consistent intro/outro beat. Manual posting at first; social APIs later if it earns its keep.
 
-### Phase 5 — The accountant
-Already half-built: every call logs its cost. Per-run and monthly caps so a runaway pipeline can't surprise you.
+### Phase 5 — The accountant *(mostly done)*
+Every call already logs its cost and the nano-gpt balance shows in the room. Remaining: per-run and monthly caps so a runaway pipeline can't surprise you.
 
 ## What your job looks like once it's live
 
-Open the joke room → say "scout me some lawyer jokes" or just hit the button → hear each candidate read aloud → keep or toss → repeat when you feel like it. When a batch is kept, the factory makes the videos overnight; you approve the day's Jacob clip and post it. Because it runs on a server, everything happens from your phone.
+Open the joke room on your phone → say "scout me some lawyer jokes" or just hit the button → hear each candidate read aloud → keep or toss → repeat when you feel like it. When a batch is kept, the factory makes the videos; you approve the day's Jacob clip and post it.
 
-## The honest fine print (kept from the original document)
+## The honest fine print
 
-- A good-looking short will cost roughly **$50–150 and most of a day**, because you'll re-render shots that come out wrong. Absurdly cheap vs. a film crew — not free.
-- The quality ceiling is real: expect "very impressive short," not Hollywood.
-- The software is a very fast, very organized intern with a company card. **Your taste at each approval is the product.**
+- Joke curation is nearly free: scout + voice runs about **$0.03 a turn**, a fraction of a cent per kept joke.
+- The expensive part is the **video**: figure roughly **$0.50–3 per daily clip** depending on the model — so a month of Jacob is more like $15–60 than the $50–150-per-film we originally penciled. Still check the receipt.
+- The quality ceiling is real: "very convincing daily character," not Pixar.
+- The scout is a very fast intern with a company card. **Your taste at keep/toss is the product.**
 
 ## Glossary
 
 - **Droplet** — DigitalOcean's name for a rented virtual server. Ours is the $4/month size.
-- **Animatic / previz** — a rough draft of the film made cheaply to check timing before spending on pretty renders.
-- **Dailies** — the day's raw takes, reviewed each evening on a real film set. Here: the 2–3 versions of each shot you pick between.
-- **Contact sheet** — takes shown side-by-side so you can compare and pick.
+- **OTP** — the sign-in code emailed to you; proves it's your inbox, no password to forget.
+- **The vault** — the two permanent joke files, accepted and rejected. What keeps duplicates out forever.
+- **Lip-sync** — the step where a video model moves Jacob's mouth to match the recorded joke audio.
 - **Caddy** — the web server software that puts the app on the internet and handles the padlock (HTTPS) automatically.
 - **nano-gpt** — the rental service for AI models. One API key, pay per use.
