@@ -44,7 +44,8 @@
       "Exec(break)",
       "Exec(grep)",
       "Exec(md5)",
-      "Exec(time curl)"
+      "Exec(time curl)",
+      "Exec(scutil)"
     ]
   }
 }
