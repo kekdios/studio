@@ -596,6 +596,7 @@ function setStage(s) {
 document.querySelectorAll('#stageBar .stab').forEach(b => { b.onclick = () => setStage(b.dataset.s); });
 
 function renderStage() {
+  clearInterval(liveTick); liveTick = null;
   if (stage === 'image') renderImage();
   else if (stage === 'video') renderVideo();
   updateNav();
@@ -617,6 +618,30 @@ function workingEl(text) {
   d.append(s, document.createTextNode(text));
   return d;
 }
+const fmtDur = ms => { const s = Math.floor(ms / 1000); return s < 3600 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+let liveTick = null;
+// live line under the spinner: started · elapsed · provider queue/progress/eta
+function tickLine(host, j) {
+  const el = document.createElement('div');
+  el.className = 'phint';
+  el.style.fontSize = '.8rem';
+  host.appendChild(el);
+  const upd = () => {
+    const cur = currentJoke()?.render || j.render || {};
+    const t0 = Date.parse(cur.stepStarted || cur.ts) || Date.now();
+    const bits = [`started ${new Date(t0).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}`, `elapsed ${fmtDur(Date.now() - t0)}`];
+    const p = cur.provider || {};
+    if (p.status) bits.push(String(p.status).toLowerCase().replace(/_/g, ' '));
+    if (p.progress != null) bits.push(`${Math.round(p.progress)}%`);
+    if (p.eta != null) bits.push(`~${fmtDur(p.eta * 1000)} left`);
+    else if (cur.step === 'render') bits.push('usually ~4 min');
+    el.textContent = bits.join('  ·  ');
+  };
+  upd();
+  clearInterval(liveTick);
+  liveTick = setInterval(upd, 1000);
+}
+const renderDur = r => r?.renderStarted && r?.renderDone ? fmtDur(Date.parse(r.renderDone) - Date.parse(r.renderStarted)) : null;
 function jokeCard(j, tag) {
   const d = document.createElement('div'); d.className = 'pjoke';
   const t = document.createElement('div'); t.className = 'ptag'; t.textContent = tag || 'in production';
@@ -676,6 +701,7 @@ function renderImage() {
   if (r.status === 'running' && r.step !== 'render') {
     if (r.step === 'stills' && (r.scenes || []).length) { renderStillGate(imagePane, j, true); return; }
     imagePane.appendChild(workingEl(`${r.step} in progress…`));
+    tickLine(imagePane, j);
     return;
   }
   if (r.sceneUrl) { const im = document.createElement('img'); im.className = 'sceneBig'; im.src = r.sceneUrl; imagePane.appendChild(im); }
@@ -783,7 +809,7 @@ function renderStillGate(pane, j, locked) {
     try { return await (await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, ...body }) })).json(); }
     catch { return { error: 'request failed — check connection and try again' }; }
   };
-  if (locked) { lock(true); busy('generating new stills — controls locked'); return; }
+  if (locked) { lock(true); busy('generating new stills — controls locked'); tickLine(st, j); return; }
   again.onclick = async () => {
     lock(true); busy('generating 4 new stills from your prompt…');
     const d = await (await post({ action: 'new-stills', prompt: ta.value, motion: mo.value })).json();
@@ -827,7 +853,10 @@ function renderVideo() {
     videoPane.appendChild(hintEl('nothing at the video step yet', 'big'));
   } else {
     videoPane.appendChild(jokeCard(j));
-    if (r.status === 'running') videoPane.appendChild(workingEl(r.step === 'publish' ? 'publishing to the gallery…' : 'rendering the take — usually a few minutes'));
+    if (r.status === 'running') {
+      videoPane.appendChild(workingEl(r.step === 'publish' ? 'publishing to the gallery…' : 'rendering the take'));
+      tickLine(videoPane, j);
+    }
     if (['error', 'interrupted'].includes(r.status) && r.step === 'render') {
       videoPane.appendChild(hintEl(`✗ render ${r.status}: ${r.error || ''}`));
       const re = document.createElement('button'); re.className = 'prod'; re.textContent = '↻ retry render (~$0.75)';
@@ -847,6 +876,8 @@ function renderVideo() {
       videoPane.append(re, bk);
     }
     if (r.status === 'awaiting_publish') {
+      const dur = renderDur(r);
+      if (dur) videoPane.appendChild(hintEl(`rendered in ${dur}`));
       const a = document.createElement('a'); a.className = 'watch'; a.href = r.clipPreview; a.target = '_blank'; a.textContent = '▶ watch the take';
       const br = document.createElement('div'); br.className = 'rrow';
       const pub = document.createElement('button'); pub.className = 'prod'; pub.textContent = 'publish to gallery';

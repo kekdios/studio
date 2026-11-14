@@ -558,7 +558,7 @@ const jobDir = job => { const d = path.join(RENDERS_DIR, job.id); fs.mkdirSync(d
 const jobAudioPath = joke => path.join(JF_AUDIO, `joke-${joke.id}.mp3`);
 
 async function jobVoice(job, joke) {
-  job.step = 'voice'; saveRenderJobs();
+  job.step = 'voice'; job.stepStarted = new Date().toISOString(); saveRenderJobs();
   const audioPath = jobAudioPath(joke);
   if (!fs.existsSync(audioPath)) {
     fs.writeFileSync(audioPath, await ng.speak(joke.text, MODELS.tts, TTS_VOICE));
@@ -571,7 +571,7 @@ async function jobVoice(job, joke) {
 
 // 4 candidate stills from the same prompt — pick one at the gate
 async function jobScenes(job) {
-  job.step = 'stills'; saveRenderJobs();
+  job.step = 'stills'; job.stepStarted = new Date().toISOString(); saveRenderJobs();
   const dir = jobDir(job);
   for (const f of fs.readdirSync(dir)) if (f.startsWith('scene-')) fs.rmSync(path.join(dir, f), { force: true });
   const results = await Promise.allSettled([1, 2, 3, 4].map(i =>
@@ -586,21 +586,29 @@ async function jobScenes(job) {
 }
 
 async function jobRender(job, joke) {
-  job.step = 'render'; saveRenderJobs();
+  job.step = 'render'; job.stepStarted = job.renderStarted = new Date().toISOString(); saveRenderJobs();
   const v = await ng.video({
     model: MODELS.avatar_video,
     prompt: job.motion,
     imageDataUrl: ng.dataUrl(path.join(jobDir(job), path.basename(job.sceneUrl))),
     audioDataUrl: ng.dataUrl(jobAudioPath(joke)),
+  }, {
+    onTick: s => { // surface whatever the provider reports (queue/progress/eta)
+      const d = s.data || s;
+      if (!job.runId && (s.requestId || d.requestId)) job.runId = s.requestId || d.requestId;
+      job.provider = { status: d.status, progress: d.progress ?? null, eta: d.estimatedTimeRemaining ?? null };
+      saveRenderJobs();
+    },
   });
   fs.writeFileSync(path.join(jobDir(job), 'final.mp4'), v.buffer);
+  job.renderDone = new Date().toISOString();
   job.runId = v.runId;
   if (v.meta?.data?.cost != null) job.cost = v.meta.data.cost;
   job.clipPreview = `/renders-media/${job.id}/final.mp4`;
 }
 
 async function jobPublish(job, joke) {
-  job.step = 'publish'; saveRenderJobs();
+  job.step = 'publish'; job.stepStarted = new Date().toISOString(); saveRenderJobs();
   const clips = JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'));
   let clipId = 'jacob-' + slugify(joke.text.split(/\s+/).slice(0, 4).join(' ')).slice(0, 40);
   if (clips.some(c => c.id === clipId)) clipId += '-' + crypto.randomBytes(3).toString('hex');
