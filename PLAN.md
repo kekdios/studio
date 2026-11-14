@@ -17,7 +17,16 @@ The app is two halves:
 - **The front room** — a web page you see in your browser (and on your phone). Where you hear jokes and decide what makes the cut.
 - **The back office** — a small program on our server that does the work: talks to the AI services, waits for renders, files every joke into the right pile, keeps the books.
 
-Your browser talks to the back office, the back office talks to the AI models. Nobody else can reach the back office — it's behind an email-code login.
+Your browser talks to the back office, the back office talks to the AI models. The room is behind an email-code login — the public pages are open to everyone.
+
+## The site map
+
+| Door | Who it's for | What it is |
+|---|---|---|
+| `reelender.com` | everybody | Landing page: Jacob's name ("Traveling Joker"), the two newest clips as samples, "see more jokes" button, quiet footer with sign-in |
+| `reelender.com/clips` | everybody | The gallery — thumbnail wall of every finished clip, tap to play, joke text + social links under each |
+| `reelender.com/room` | you | The joke room — scout, vault, voice. Behind the login |
+| `reelender.com/login` | you | Email-code sign-in |
 
 ## Where things live
 
@@ -37,16 +46,18 @@ Your browser talks to the back office, the back office talks to the AI models. N
 - [x] **The joke room** — voice-first page: you talk, Whisper hears you, the scout answers in your chosen ElevenLabs voice. Works on the phone.
 - [x] **Sign-in** — email → 6-digit code via Resend → logged in for 7 days. Passphrase as backup. Only your email gets in.
 - [x] **The scout** — searches the real web (`:online`), brings back joke candidates as cards: **hear it / keep / toss**. Shaped by whatever direction you give it in conversation.
-- [x] **The vault** — accepted + rejected lists, kept forever. Seen jokes never come back.
+- [x] **The vault** — a browsable catalog with three tabs: kept, produced, tossed. Every joke can be heard, edited (including `[pause]`/`[laughing]` voice tags), moved between piles, or deleted. Manual "＋ add" for jokes you find yourself. A "✓ produced" flag tracks which kept jokes became clips.
+- [x] **Dupe radar** — every scout candidate is scored against the whole vault; near-matches get a warning flag on the card showing the vault joke it resembles, so nothing repeats silently.
 - [x] **Keys and secrets** — all staged locally, gitignored, mirrored on the server. Nothing sensitive in the public repo.
 - [x] **The gallery** — public thumbnail wall at `/clips`; tap to play, joke text + social links under each video.
 - [x] **Jacob locked** — three turnaround photos + written character sheet staged; voice is your ElevenLabs voice (same as the scout's).
 - [x] **Phone-ready** — room, login, and gallery all responsive; voice input works on iOS.
+- [x] **Public face** — landing page (samples + sign-in footer) separate from the full gallery; `www` redirects to the apex so one login works everywhere. Logout button in the room. Clips marked open source on both public pages.
 
 ## The build phases
 
 ### Phase 1 — The joke room ✅ *(live)*
-Voice conversation, OTP login, scout button, joke cards, the vault, web search. Done and on your phone.
+Voice conversation, OTP login, scout button, joke cards, the vault catalog, fuzzy dupe flagging, manual adds, produced tracking. Done and on your phone.
 
 ### Phase 2 — Lock Jacob ✅
 The whole product depends on Jacob being the same Jacob every day: one face, one outfit, one voice. Done: three turnaround references staged in `projects/joke-factory/jacob/` (front, left, right) plus a written character sheet — same grey hoodie/orange top/vest/cargo shorts/blue leggings/neon runners. Voice locked too: Jacob speaks with your ElevenLabs voice — the same one the scout uses. These become the references every video is built from.
@@ -77,7 +88,7 @@ Open the joke room on your phone → say "scout me some lawyer jokes" or just hi
 
 - **Droplet** — DigitalOcean's name for a rented virtual server. Ours is the $4/month size.
 - **OTP** — the sign-in code emailed to you; proves it's your inbox, no password to forget.
-- **The vault** — the two permanent joke files, accepted and rejected. What keeps duplicates out forever.
+- **The vault** — the permanent joke store: kept, tossed, undecided, plus a "produced" flag on kept jokes. What keeps duplicates out forever.
 - **Lip-sync** — the step where a video model moves Jacob's mouth to match the recorded joke audio.
 - **Caddy** — the web server software that puts the app on the internet and handles the padlock (HTTPS) automatically.
 - **nano-gpt** — the rental service for AI models. One API key, pay per use.

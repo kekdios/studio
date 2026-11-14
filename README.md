@@ -2,22 +2,28 @@
 
 **An AI joke factory. One character, one joke a day, posted everywhere.**
 
-Jacob tells a daily joke on social media — always the same guy, same clothes, same voice. An AI scout hunts the internet for the funniest short jokes; you hear each one and keep or toss it; accepted jokes get voiced, turned into a short vertical video of Jacob, and posted. Simple loop, thousands of jokes.
+Jacob — the Traveling Joker — tells a daily joke on social media, always the same guy, same clothes, same voice. An AI scout hunts the internet for the funniest short jokes; you hear each one and keep or toss it; accepted jokes get voiced, turned into a short vertical video of Jacob, and posted. Simple loop, thousands of jokes.
 
-Live at [reelender.com](https://reelender.com) — and the public clip gallery at [reelender.com/clips](https://reelender.com/clips).
+## The site
 
-## How it works
+- **[reelender.com](https://reelender.com)** — landing page: Jacob's name, the two newest clips as samples, and a "see more jokes" door into the gallery
+- **[reelender.com/clips](https://reelender.com/clips)** — the public gallery: a thumbnail wall of every finished clip with the joke text and links out to TikTok/IG/YouTube posts. All clips are open source — use them for whatever you want
+- **reelender.com/room** — the joke room (sign-in required): voice-first curation where the scouting and deciding happens
 
-- **The joke room** (sign-in required) — voice-first curation: talk to the scout, or tap to get a batch of joke cards. Every card: **hear it / keep / toss**. Kept and tossed jokes are filed forever so nothing repeats.
-- **The factory** — an accepted joke is read aloud in Jacob's voice, placed in a setting, and rendered as a short lip-synced vertical clip.
-- **The gallery** — a public page with every finished clip, the joke text, and links out to the TikTok/IG/YouTube posts.
+## The joke room
+
+- **Scout button** → the AI searches the web and returns joke cards: hear it / keep / toss
+- **Dupe radar** → every candidate is scored against the vault; near-matches get flagged with the joke they resemble before you decide
+- **The vault** → kept / produced / tossed catalog. Every joke can be heard, edited (ElevenLabs `[pause]`/`[laughing]` tags supported), moved between piles, or deleted — and you can add your own jokes manually
+- **Produced flag** → mark a kept joke when its clip is made, so the backlog and the done pile stay separate
+- Everything is spoken in the same ElevenLabs voice — which is also Jacob's voice
 
 ## Status
 
-🚧 Joke room and gallery are live; the joke→video pipeline is being built. See [PLAN.md](PLAN.md) for the full roadmap.
+🚧 Curation is fully live; the joke→video pipeline is next. See [PLAN.md](PLAN.md) for the full roadmap.
 
 ## Stack
 
-- Express + vanilla-JS pages (no framework yet — the prototype became the product)
+- Express + vanilla-JS pages (no framework — the prototype became the product)
 - [nano-gpt](https://nano-gpt.com) API for everything: chat with web search, speech-to-text, text-to-speech (ElevenLabs voices routed through it), image/video models next
 - Self-hosted on a DigitalOcean droplet behind Caddy (HTTPS), email-code sign-in via Resend
