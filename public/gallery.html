@@ -38,7 +38,7 @@
 <header>
   <img src="/reelenderlogosq.png" alt="">
   <div><h1>Jacob</h1><div class="sub">a joke a day</div></div>
-  <a class="room" href="/room">← joke room</a>
+  <a class="room" href="/room">joke room</a>
 </header>
 <div id="grid"><div class="empty">loading…</div></div>
 <div id="lightbox">
@@ -58,6 +58,12 @@ const grid = document.getElementById('grid');
 const lb = document.getElementById('lightbox');
 const lbVideo = document.getElementById('lbVideo');
 const socialLabel = { tiktok:'TikTok', instagram:'Instagram', youtube:'YouTube', x:'X' };
+const roomLink = document.querySelector('a.room');
+try {
+  const r = await fetch('/api/jokes');
+  if (r.ok) { roomLink.textContent = 'joke room →'; }
+  else { roomLink.textContent = 'sign in →'; roomLink.href = '/login'; }
+} catch { roomLink.textContent = 'sign in →'; roomLink.href = '/login'; }
 let clips = [];
 try { clips = await (await fetch('/api/clips')).json(); } catch {}
 grid.innerHTML = '';
