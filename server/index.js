@@ -657,11 +657,31 @@ app.post('/api/jokes/render-preview', async (req, res) => {
   try {
     if (!joke) throw new Error('joke not found');
     const d = await aiPrompt(joke, (setting || '').trim(), orient);
+    const hit = findInStores(id);
+    if (hit) {
+      hit.list[hit.i].draft = { prompt: d.scene, motion: d.motion, orientation: orient, ts: new Date().toISOString() };
+      stores[hit.name].save(hit.list);
+    }
     return res.json({ prompt: d.scene, defaultMotion: d.motion });
   } catch (e) {
     console.error('ai prompt draft failed, using template:', e.message);
     res.json({ prompt: scenePrompt((setting || '').trim(), orient), defaultMotion: DEFAULT_MOTION });
   }
+});
+
+// persist an edited draft without drafting again
+app.post('/api/jokes/draft', (req, res) => {
+  const { id, prompt, motion, orientation } = req.body || {};
+  const hit = findInStores(id);
+  if (!hit) return res.status(404).json({ error: 'joke not found' });
+  const d = hit.list[hit.i].draft || {};
+  if (prompt != null) d.prompt = String(prompt);
+  if (motion != null) d.motion = String(motion);
+  if (orientation != null) d.orientation = ORIENTS[orientation] || d.orientation || '9:16';
+  d.ts = new Date().toISOString();
+  hit.list[hit.i].draft = d;
+  stores[hit.name].save(hit.list);
+  res.json({ ok: true });
 });
 
 app.post('/api/jokes/render', async (req, res) => {
