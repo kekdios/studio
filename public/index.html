@@ -20,6 +20,28 @@
   #newSession:hover { color:#fff; border-color:#555; }
   #logout { background:none; border:1px solid #333; color:#aaa; font-size:.72rem; padding:4px 10px; border-radius:6px; cursor:pointer; }
   #logout:hover { color:#fff; border-color:#555; }
+  #vaultBtn { background:#1c1c26; border:1px solid #333; color:#aaa; font-size:.72rem; padding:4px 10px; border-radius:6px; cursor:pointer; }
+  #vaultBtn:hover { color:#fff; border-color:#555; }
+  #vault { position:fixed; inset:0; background:rgba(0,0,0,.7); display:none; align-items:center; justify-content:center; z-index:10; padding:14px; }
+  #vault.open { display:flex; }
+  #vaultCard { width:100%; max-width:560px; height:80vh; background:#101018; border:1px solid #23232f; border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
+  #vaultHead { display:flex; gap:6px; padding:10px 12px; border-bottom:1px solid #23232f; align-items:center; }
+  #vaultHead .tab { background:none; border:1px solid #333; color:#aaa; font-size:.78rem; padding:5px 12px; border-radius:999px; cursor:pointer; }
+  #vaultHead .tab.on { color:#fff; border-color:#777; background:#1c1c26; }
+  #vaultHead .tab .n { opacity:.6; }
+  #vaultClose { margin-left:auto; background:none; border:none; color:#aaa; font-size:1.5rem; cursor:pointer; line-height:1; }
+  #vaultList { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .vrow { background:#16161f; border:1px solid #2a2a3a; border-radius:12px; padding:10px 12px; }
+  .vrow.produced { border-color:#2d7a4f; }
+  .vrow .vtxt { font-size:.9rem; line-height:1.45; margin-bottom:8px; white-space:pre-wrap; }
+  .vrow .vflag { font-size:.68rem; color:#3ddc84; font-weight:600; }
+  .vrow .vbtns { display:flex; gap:6px; flex-wrap:wrap; }
+  .vrow .vbtns button { background:#1c1c26; border:1px solid #3a3a4a; color:#ccc; font-size:.72rem; padding:4px 10px; border-radius:6px; cursor:pointer; }
+  .vrow .vbtns button:hover { border-color:#666; color:#fff; }
+  .vrow .vbtns button.prod { border-color:#2d7a4f; color:#3ddc84; }
+  .vrow .vbtns button.del { border-color:#7a2d2d; }
+  .vrow textarea { width:100%; background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:8px 10px; font:inherit; font-size:.9rem; margin-bottom:8px; resize:vertical; }
+  .vempty { text-align:center; color:#555; padding:40px 10px; font-size:.85rem; }
 
   #transcript { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:760px; width:100%; margin:0 auto; }
   .turn { max-width:85%; padding:10px 14px; border-radius:14px; line-height:1.45; font-size:.95rem; white-space:pre-wrap; }
@@ -77,11 +99,23 @@
   <span id="kept"></span>
   <span id="balance"></span>
   <a href="/clips" id="galleryLink" target="_blank">gallery ↗</a>
+  <button id="vaultBtn">vault</button>
   <button id="newSession">new session</button>
   <button id="logout">log out</button>
 </header>
 
 <div id="transcript"></div>
+
+<div id="vault">
+  <div id="vaultCard">
+    <div id="vaultHead">
+      <button class="tab on" data-t="accepted">kept <span class="n" id="nKept"></span></button>
+      <button class="tab" data-t="rejected">tossed <span class="n" id="nTossed"></span></button>
+      <button id="vaultClose">&times;</button>
+    </div>
+    <div id="vaultList"></div>
+  </div>
+</div>
 
 <div id="controls">
   <div id="status">talk to the scout, or pull a batch of jokes</div>
@@ -295,6 +329,89 @@ document.getElementById('newSession').onclick = async () => {
   transcriptEl.innerHTML = '';
   setStatus('clean page — talk to the scout');
 };
+
+// --- vault catalog: kept & tossed, editable ---
+const vaultEl = document.getElementById('vault');
+const vaultList = document.getElementById('vaultList');
+let vaultTab = 'accepted';
+let vaultData = { accepted: [], rejected: [] };
+
+async function loadVault() {
+  const d = await (await fetch('/api/jokes')).json();
+  vaultData = d;
+  document.getElementById('nKept').textContent = `(${d.accepted.length})`;
+  document.getElementById('nTossed').textContent = `(${d.rejected.length})`;
+  renderVault();
+}
+
+function renderVault() {
+  const list = vaultData[vaultTab] || [];
+  vaultList.innerHTML = '';
+  if (!list.length) { vaultList.innerHTML = '<div class="vempty">nothing here yet</div>'; return; }
+  for (const j of [...list].reverse()) {
+    const row = document.createElement('div');
+    row.className = 'vrow' + (j.produced ? ' produced' : '');
+    if (j.produced) {
+      const f = document.createElement('div'); f.className = 'vflag'; f.textContent = '✓ produced';
+      row.appendChild(f);
+    }
+    const txt = document.createElement('div');
+    txt.className = 'vtxt'; txt.textContent = j.text;
+    row.appendChild(txt);
+    const btns = document.createElement('div');
+    btns.className = 'vbtns';
+    const mk = (label, cls, fn) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; btns.appendChild(b); };
+    const move = async to => { await fetch('/api/jokes/move', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, to}) }); loadVault(); loadCounts(); };
+    if (vaultTab === 'accepted') {
+      mk(j.produced ? 'unmark produced' : '✓ produced', 'prod', async () => {
+        await fetch('/api/jokes/produce', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, produced:!j.produced}) });
+        loadVault();
+      });
+      mk('→ toss', '', () => move('rejected'));
+    } else {
+      mk('→ keep', 'prod', () => move('accepted'));
+    }
+    mk('edit', '', () => startVaultEdit(row, j));
+    mk('delete', 'del', async () => {
+      if (!confirm('Delete this joke forever?')) return;
+      await fetch('/api/jokes/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id}) });
+      loadVault(); loadCounts();
+    });
+    row.appendChild(btns);
+    vaultList.appendChild(row);
+  }
+}
+
+function startVaultEdit(row, j) {
+  const txt = row.querySelector('.vtxt');
+  const ta = document.createElement('textarea');
+  ta.value = j.text; ta.rows = 4;
+  txt.replaceWith(ta);
+  ta.focus();
+  const btns = row.querySelector('.vbtns');
+  btns.innerHTML = '';
+  const save = document.createElement('button'); save.textContent = 'save'; save.className = 'prod';
+  const cancel = document.createElement('button'); cancel.textContent = 'cancel';
+  btns.append(save, cancel);
+  cancel.onclick = () => renderVault();
+  save.onclick = async () => {
+    const text = ta.value.trim(); if (!text) return;
+    await fetch('/api/jokes/edit', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, text}) });
+    j.text = text;
+    renderVault();
+  };
+}
+
+document.getElementById('vaultBtn').onclick = () => { vaultEl.classList.add('open'); loadVault(); };
+document.getElementById('vaultClose').onclick = () => vaultEl.classList.remove('open');
+vaultEl.onclick = e => { if (e.target === vaultEl) vaultEl.classList.remove('open'); };
+document.querySelectorAll('#vaultHead .tab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('#vaultHead .tab').forEach(x => x.classList.toggle('on', x === t));
+    vaultTab = t.dataset.t;
+    renderVault();
+  };
+});
 
 document.getElementById('logout').onclick = async () => {
   await fetch('/api/logout', { method: 'POST' });

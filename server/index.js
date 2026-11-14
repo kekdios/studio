@@ -249,12 +249,27 @@ const readJsonl = f => { try { return fs.readFileSync(f, 'utf8').split('\n').fil
 const appendJsonl = (f, o) => fs.appendFileSync(f, JSON.stringify(o) + '\n');
 const loadPending = () => { try { return JSON.parse(fs.readFileSync(PENDING_F, 'utf8')); } catch { return []; } };
 const savePending = p => fs.writeFileSync(PENDING_F, JSON.stringify(p));
+const writeJsonl = (f, l) => fs.writeFileSync(f, l.map(j => JSON.stringify(j)).join('\n') + (l.length ? '\n' : ''));
+const stores = {
+  pending:  { load: loadPending,              save: savePending },
+  accepted: { load: () => readJsonl(ACCEPTED_F), save: l => writeJsonl(ACCEPTED_F, l) },
+  rejected: { load: () => readJsonl(REJECTED_F), save: l => writeJsonl(REJECTED_F, l) },
+};
+const findInStores = id => {
+  for (const [name, s] of Object.entries(stores)) {
+    const list = s.load();
+    const i = list.findIndex(j => j.id === id);
+    if (i !== -1) return { name, list, i };
+  }
+  return null;
+};
 const norm = s => s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const seenSet = () => new Set([...readJsonl(ACCEPTED_F), ...readJsonl(REJECTED_F)].map(j => norm(j.text)));
 const findJoke = id => [...loadPending(), ...readJsonl(ACCEPTED_F)].find(j => j.id === id);
 
 app.get('/api/jokes', (req, res) => res.json({
   accepted: readJsonl(ACCEPTED_F),
+  rejected: readJsonl(REJECTED_F),
   rejected_count: readJsonl(REJECTED_F).length,
   pending: loadPending(),
 }));
@@ -292,13 +307,43 @@ app.post('/api/jokes/fetch', async (req, res) => {
 app.post('/api/jokes/edit', (req, res) => {
   const { id, text } = req.body || {};
   if (!id || typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'id and text required' });
-  const pending = loadPending();
-  const i = pending.findIndex(j => j.id === id);
-  if (i === -1) return res.status(404).json({ error: 'joke not pending' });
-  pending[i].text = text.trim();
-  delete pending[i].audio; // cached audio no longer matches the edited text
-  savePending(pending);
-  res.json({ ok: true, joke: pending[i] });
+  const hit = findInStores(id);
+  if (!hit) return res.status(404).json({ error: 'joke not found' });
+  hit.list[hit.i].text = text.trim();
+  delete hit.list[hit.i].audio; // cached audio no longer matches the edited text
+  stores[hit.name].save(hit.list);
+  res.json({ ok: true, joke: hit.list[hit.i] });
+});
+
+app.post('/api/jokes/delete', (req, res) => {
+  const hit = findInStores(req.body?.id);
+  if (!hit) return res.status(404).json({ error: 'joke not found' });
+  hit.list.splice(hit.i, 1);
+  stores[hit.name].save(hit.list);
+  res.json({ ok: true });
+});
+
+app.post('/api/jokes/move', (req, res) => {
+  const { id, to } = req.body || {};
+  if (!stores[to]) return res.status(400).json({ error: 'to must be pending|accepted|rejected' });
+  const hit = findInStores(id);
+  if (!hit) return res.status(404).json({ error: 'joke not found' });
+  const [joke] = hit.list.splice(hit.i, 1);
+  stores[hit.name].save(hit.list);
+  const target = stores[to].load();
+  target.push(joke);
+  stores[to].save(target);
+  res.json({ ok: true, from: hit.name, to });
+});
+
+app.post('/api/jokes/produce', (req, res) => {
+  const { id, produced } = req.body || {};
+  const list = readJsonl(ACCEPTED_F);
+  const i = list.findIndex(j => j.id === id);
+  if (i === -1) return res.status(404).json({ error: 'joke not in kept list' });
+  list[i].produced = !!produced;
+  writeJsonl(ACCEPTED_F, list);
+  res.json({ ok: true, produced: list[i].produced });
 });
 
 app.post('/api/jokes/decide', (req, res) => {
