@@ -151,6 +151,11 @@ app.post('/api/logout', (req, res) => {
 // --- end auth ---
 
 app.use(express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '25mb' }));
+// cache policy: HTML revalidates every visit, media can cache hard
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', /^\/(clips-media|joke-audio|audio)\//.test(req.path) ? 'public, max-age=86400' : 'no-cache');
+  next();
+});
 app.use(express.static(path.join(ROOT, 'public')));
 app.use('/audio', express.static(AUDIO_DIR));
 
