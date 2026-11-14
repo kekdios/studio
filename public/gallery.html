@@ -14,24 +14,16 @@
   header .sub { color:#777; font-size:.8rem; }
   header a.room { margin-left:auto; font-size:.8rem; color:#aaa; text-decoration:none; border:1px solid #333; padding:6px 12px; border-radius:999px; }
   header a.room:hover { color:#fff; border-color:#666; }
-  #grid { max-width:860px; margin:0 auto; padding:18px 14px 60px; display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; }
-  .tile { position:relative; aspect-ratio:9/16; background:#13131c; border:1px solid #23232f; border-radius:12px; overflow:hidden; cursor:pointer; padding:0; }
-  .tile img { width:100%; height:100%; object-fit:cover; display:block; }
-  .tile .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:1.6rem; color:#fff; background:linear-gradient(transparent 55%, rgba(0,0,0,.65)); text-shadow:0 2px 8px #000; }
-  .tile .teaser { position:absolute; left:8px; right:8px; bottom:8px; font-size:.62rem; line-height:1.3; color:#ddd; text-align:left; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center; z-index:10; padding:16px; }
-  #lightbox.open { display:flex; }
-  #lbCard { width:100%; max-width:400px; max-height:100%; overflow-y:auto; background:#13131c; border:1px solid #23232f; border-radius:16px; overflow-x:hidden; }
-  #lbCard video { width:100%; display:block; background:#000; }
-  #lbMeta { padding:14px 16px; }
-  #lbJoke { font-size:1rem; line-height:1.5; margin:0 0 10px; }
-  #lbDate { font-size:.72rem; color:#666; margin-bottom:10px; }
+  #feed { max-width:460px; margin:0 auto; padding:20px 14px 60px; display:flex; flex-direction:column; gap:28px; }
+  .clip { background:#13131c; border:1px solid #23232f; border-radius:16px; overflow:hidden; }
+  .clip video { width:100%; display:block; background:#000; }
+  .clip .meta { padding:14px 16px; }
+  .clip .joke { font-size:1rem; line-height:1.5; margin:0 0 10px; }
+  .clip .date { font-size:.72rem; color:#666; margin-bottom:10px; }
   .socials { display:flex; gap:8px; flex-wrap:wrap; }
   .socials a { font-size:.75rem; color:#aaa; text-decoration:none; border:1px solid #333; padding:5px 11px; border-radius:999px; }
   .socials a:hover { color:#fff; border-color:#666; }
-  #lbClose { position:absolute; top:14px; right:16px; background:none; border:none; color:#aaa; font-size:2rem; cursor:pointer; line-height:1; }
-  .empty { grid-column:1/-1; text-align:center; color:#666; padding:60px 20px; }
-  @media (min-width:600px) { #grid { grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:14px; } }
+  .empty { text-align:center; color:#666; padding:60px 20px; }
 </style>
 </head>
 <body>
@@ -40,66 +32,42 @@
   <div><h1>Jacob</h1><div class="sub">a joke a day</div></div>
   <a class="room" href="/room">← joke room</a>
 </header>
-<div id="grid"><div class="empty">loading…</div></div>
-<div id="lightbox">
-  <button id="lbClose" aria-label="close">&times;</button>
-  <div id="lbCard">
-    <video id="lbVideo" controls playsinline></video>
-    <div id="lbMeta">
-      <p id="lbJoke"></p>
-      <div id="lbDate"></div>
-      <div class="socials" id="lbSocials"></div>
-    </div>
-  </div>
-</div>
+<div id="feed"><div class="empty">loading…</div></div>
 <script>
 (async () => {
-const grid = document.getElementById('grid');
-const lb = document.getElementById('lightbox');
-const lbVideo = document.getElementById('lbVideo');
+const feed = document.getElementById('feed');
 const socialLabel = { tiktok:'TikTok', instagram:'Instagram', youtube:'YouTube', x:'X' };
 let clips = [];
 try { clips = await (await fetch('/api/clips')).json(); } catch {}
-grid.innerHTML = '';
-if (!clips.length) grid.innerHTML = '<div class="empty">no clips yet — Jacob is still in makeup</div>';
-function open(c) {
-  lbVideo.src = '/clips-media/' + c.file;
-  if (c.poster) lbVideo.poster = '/clips-media/' + c.poster;
-  document.getElementById('lbJoke').textContent = c.joke || '';
-  document.getElementById('lbDate').textContent = c.ts || '';
-  const s = document.getElementById('lbSocials');
-  s.innerHTML = '';
-  for (const [k,u] of Object.entries(c.socials || {})) {
-    if (!u) continue;
-    const a = document.createElement('a');
-    a.href = u; a.target = '_blank'; a.rel = 'noopener';
-    a.textContent = 'watch on ' + (socialLabel[k] || k); s.appendChild(a);
-  }
-  lb.classList.add('open');
-  lbVideo.play().catch(() => {});
-}
-function close() { lb.classList.remove('open'); lbVideo.pause(); lbVideo.removeAttribute('src'); lbVideo.load(); }
+feed.innerHTML = '';
+if (!clips.length) feed.innerHTML = '<div class="empty">no clips yet — Jacob is still in makeup</div>';
 for (const c of clips) {
-  const tile = document.createElement('button');
-  tile.className = 'tile';
-  tile.onclick = () => open(c);
-  if (c.poster) {
-    const img = document.createElement('img');
-    img.src = '/clips-media/' + c.poster;
-    img.alt = ''; img.loading = 'lazy';
-    tile.appendChild(img);
+  const card = document.createElement('div');
+  card.className = 'clip';
+  const v = document.createElement('video');
+  v.src = '/clips-media/' + c.file;
+  if (c.poster) v.poster = '/clips-media/' + c.poster;
+  v.controls = true;
+  v.playsInline = true;
+  v.preload = 'none';           // nothing buffers until the visitor taps play
+  card.appendChild(v);
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  if (c.joke) { const p = document.createElement('p'); p.className = 'joke'; p.textContent = c.joke; meta.appendChild(p); }
+  if (c.ts) { const d = document.createElement('div'); d.className = 'date'; d.textContent = c.ts; meta.appendChild(d); }
+  const links = Object.entries(c.socials || {}).filter(([,u]) => u);
+  if (links.length) {
+    const s = document.createElement('div'); s.className = 'socials';
+    for (const [k,u] of links) {
+      const a = document.createElement('a');
+      a.href = u; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = 'watch on ' + (socialLabel[k] || k); s.appendChild(a);
+    }
+    meta.appendChild(s);
   }
-  const play = document.createElement('div'); play.className = 'play'; play.textContent = '▶';
-  tile.appendChild(play);
-  if (c.joke) {
-    const t = document.createElement('div'); t.className = 'teaser'; t.textContent = c.joke;
-    tile.appendChild(t);
-  }
-  grid.appendChild(tile);
+  card.appendChild(meta);
+  feed.appendChild(card);
 }
-document.getElementById('lbClose').onclick = close;
-lb.onclick = e => { if (e.target === lb) close(); };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
 })();
 </script>
 </body>
