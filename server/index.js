@@ -40,7 +40,7 @@ function cookieToken(req) {
 }
 
 app.use((req, res, next) => {
-  const open = req.path === '/login' || req.path === '/api/login'
+  const open = req.path === '/' || req.path === '/login' || req.path === '/api/login'
     || req.path === '/api/otp/request' || req.path === '/api/otp/verify'
     || req.path === '/clips' || req.path === '/api/clips'
     || req.path === '/reelenderlogo.png' || req.path === '/reelenderlogosq.png'
@@ -52,6 +52,9 @@ app.use((req, res, next) => {
   res.redirect('/login');
 });
 
+// public landing = the gallery; the room lives behind auth at /room
+app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'public', 'gallery.html')));
+app.get('/room', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 app.get('/login', (req, res) => res.sendFile(path.join(ROOT, 'public', 'login.html')));
 
 app.post('/api/login', (req, res) => {

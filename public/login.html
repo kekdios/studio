@@ -68,14 +68,14 @@ document.getElementById('emailStep').onsubmit = async (e) => {
 document.getElementById('codeStep').onsubmit = async (e) => {
   e.preventDefault(); err('');
   const res = await post('/api/otp/verify', { email: document.getElementById('email').value, code: document.getElementById('code').value });
-  if (res.ok) location.href = '/';
+  if (res.ok) location.href = '/room';
   else err((await res.json()).error || 'nope');
 };
 
 document.getElementById('pwStep').onsubmit = async (e) => {
   e.preventDefault(); err('');
   const res = await post('/api/login', { password: document.getElementById('pw').value });
-  if (res.ok) location.href = '/';
+  if (res.ok) location.href = '/room';
   else err('wrong passphrase');
 };
 </script>
