@@ -738,7 +738,10 @@ function renderStillGate(pane, j) {
     const img = document.createElement('img');
     img.src = u; img.loading = 'lazy'; img.alt = `still ${i + 1}`;
     if (i === picked) img.classList.add('pick');
-    img.onclick = () => { picked = i; grid.querySelectorAll('img').forEach(x => x.classList.remove('pick')); img.classList.add('pick'); };
+    img.onclick = () => {
+      if (picked === i) { picked = -1; img.classList.remove('pick'); return; } // tap again to unpick
+      picked = i; grid.querySelectorAll('img').forEach(x => x.classList.remove('pick')); img.classList.add('pick');
+    };
     grid.appendChild(img);
   });
   const lp = document.createElement('div'); lp.className = 'flabel'; lp.textContent = 'scene prompt — edit and reroll';
@@ -746,11 +749,11 @@ function renderStillGate(pane, j) {
   const lm = document.createElement('div'); lm.className = 'flabel'; lm.textContent = 'movement direction';
   const mo = document.createElement('input'); mo.value = r.motion || ''; mo.placeholder = 'movement direction';
   const rr = document.createElement('div'); rr.className = 'rrow';
-  const again = document.createElement('button'); again.textContent = '↻ 4 new (~$0.25)';
+  const again = document.createElement('button'); again.textContent = '↻ 4 new from this prompt (~$0.25)';
   const go = document.createElement('button'); go.className = 'prod'; go.textContent = 'render picked (~$0.75)';
-  const cancel = document.createElement('button'); cancel.textContent = '✕ start over';
-  cancel.title = 'scrap these stills, back to direction';
-  const st = document.createElement('span'); st.className = 'rstatus'; st.textContent = 'tap a still — or edit the prompt and reroll';
+  const cancel = document.createElement('button'); cancel.textContent = '✕ scrap job';
+  cancel.title = 'scrap these stills and this job, back to direction';
+  const st = document.createElement('span'); st.className = 'rstatus'; st.textContent = 'tap a still (tap again to unpick) — or edit the prompt and reroll';
   rr.append(again, go, cancel, st);
   wrap.append(grid, lp, ta, lm, mo, rr);
   pane.appendChild(wrap);

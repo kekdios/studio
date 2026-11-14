@@ -726,6 +726,12 @@ app.post('/api/jokes/render-action', (req, res) => {
   if (action === 'new-stills') {
     if (job.status !== 'awaiting_scene') return res.status(409).json({ error: 'not at the stills step' });
     if (prompt != null && String(prompt).trim()) job.prompt = String(prompt).trim();
+    delete job.pick; delete job.sceneUrl;
+    const hit = findInStores(jokeId);
+    if (hit) { // gate edits stay tied to the workflow
+      hit.list[hit.i].draft = { prompt: job.prompt, motion: job.motion, orientation: job.orientation, ts: new Date().toISOString() };
+      stores[hit.name].save(hit.list);
+    }
     job.status = 'running'; saveRenderJobs();
     jobScenes(job)
       .then(() => { if (!cancelled(job)) job.status = 'awaiting_scene'; })
