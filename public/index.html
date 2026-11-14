@@ -60,6 +60,10 @@
   .rform input::placeholder { color:#4e4e60; }
   .rform .rrow { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .rform .rstatus { font-size:.75rem; color:#888; }
+  .rform .rstatus.err { color:#e2483d; }
+  .working { display:flex; align-items:center; gap:10px; color:#e8b84b; font-size:.95rem; font-weight:600; padding:6px 0; }
+  .working .spin { width:16px; height:16px; border:2px solid #3a3a4a; border-top-color:#e8b84b; border-radius:50%; animation:wspin .8s linear infinite; flex:none; }
+  @keyframes wspin { to { transform:rotate(360deg); } }
   .rform .flabel { font-size:.66rem; text-transform:uppercase; letter-spacing:.08em; color:#777; margin-bottom:-4px; }
   .pane button { background:#1c1c26; border:1px solid #3a3a4a; color:#ddd; font-size:.82rem; padding:8px 16px; border-radius:999px; cursor:pointer; }
   .pane button:hover { border-color:#666; color:#fff; }
@@ -607,6 +611,12 @@ function startProduction(id) {
 }
 
 function hintEl(text, cls) { const d = document.createElement('div'); d.className = 'phint' + (cls ? ' ' + cls : ''); d.textContent = text; return d; }
+function workingEl(text) {
+  const d = document.createElement('div'); d.className = 'working';
+  const s = document.createElement('span'); s.className = 'spin';
+  d.append(s, document.createTextNode(text));
+  return d;
+}
 function jokeCard(j, tag) {
   const d = document.createElement('div'); d.className = 'pjoke';
   const t = document.createElement('div'); t.className = 'ptag'; t.textContent = tag || 'in production';
@@ -663,7 +673,11 @@ function renderImage() {
     return;
   }
   if (r.status === 'awaiting_scene') { renderStillGate(imagePane, j); return; }
-  if (r.status === 'running' && r.step !== 'render') { imagePane.appendChild(hintEl(`⏳ ${r.step}…`)); return; }
+  if (r.status === 'running' && r.step !== 'render') {
+    if (r.step === 'stills' && (r.scenes || []).length) { renderStillGate(imagePane, j, true); return; }
+    imagePane.appendChild(workingEl(`${r.step} in progress…`));
+    return;
+  }
   if (r.sceneUrl) { const im = document.createElement('img'); im.className = 'sceneBig'; im.src = r.sceneUrl; imagePane.appendChild(im); }
   imagePane.appendChild(hintEl('still locked ✓ — this joke is at the video step'));
 }
@@ -683,12 +697,12 @@ function renderDirectionForm(pane, j, draft) {
   if (draft?.orientation === '16:9') or.value = 'horizontal';
   const rr = document.createElement('div'); rr.className = 'rrow';
   const next = document.createElement('button'); next.className = 'prod'; next.textContent = '✨ write the prompt';
-  const st = document.createElement('span'); st.className = 'rstatus';
+  const st = document.createElement('div'); st.className = 'rstatus';
   rr.append(next, st);
   wrap.append(lset, setting, lor, or, rr);
   pane.appendChild(wrap);
   next.onclick = async () => {
-    next.disabled = true; st.textContent = 'AI is drafting the scene…';
+    next.disabled = true; st.replaceChildren(workingEl('AI is drafting the scene…'));
     const d = await (await fetch('/api/jokes/render-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: j.id, setting: setting.value, orientation: or.value }) })).json();
     wrap.remove();
@@ -707,7 +721,7 @@ function renderPromptEditor(pane, j, draft) {
   const gen = document.createElement('button'); gen.className = 'prod'; gen.textContent = 'generate 4 stills (~$0.25)';
   const save = document.createElement('button'); save.textContent = '💾 save edits';
   const back = document.createElement('button'); back.textContent = '← direction';
-  const st = document.createElement('span'); st.className = 'rstatus';
+  const st = document.createElement('div'); st.className = 'rstatus';
   rr.append(gen, save, back, st);
   wrap.append(lp, ta, lm, mo, rr);
   pane.appendChild(wrap);
@@ -720,7 +734,7 @@ function renderPromptEditor(pane, j, draft) {
   };
   back.onclick = () => { wrap.remove(); renderDirectionForm(pane, j, draft); };
   gen.onclick = async () => {
-    gen.disabled = true; st.textContent = 'starting…';
+    gen.disabled = true; st.replaceChildren(workingEl('starting the job — voice first, then stills…'));
     const x = await fetch('/api/jokes/render', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: j.id, prompt: ta.value, motion: mo.value, orientation: orient }) });
     const dd = await x.json();
@@ -729,7 +743,7 @@ function renderPromptEditor(pane, j, draft) {
   };
 }
 
-function renderStillGate(pane, j) {
+function renderStillGate(pane, j, locked) {
   const r = j.render;
   const wrap = document.createElement('div'); wrap.className = 'rform';
   const grid = document.createElement('div'); grid.className = 'vscenes';
@@ -755,25 +769,36 @@ function renderStillGate(pane, j) {
   if (picked >= 0) go.classList.add('prod'); // only green once a still is chosen
   const cancel = document.createElement('button'); cancel.textContent = '✕ scrap job';
   cancel.title = 'scrap these stills and this job, back to direction';
-  const st = document.createElement('span'); st.className = 'rstatus'; st.textContent = 'tap a still (tap again to unpick) — or edit the prompt and reroll';
-  rr.append(again, go, cancel, st);
-  wrap.append(grid, lp, ta, lm, mo, rr);
+  const st = document.createElement('div'); st.className = 'rstatus'; st.textContent = 'tap a still (tap again to unpick) — or edit the prompt and reroll';
+  rr.append(again, go, cancel);
+  wrap.append(grid, lp, ta, lm, mo, st, rr);
   pane.appendChild(wrap);
-  const post = body => fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, ...body }) });
+  const busy = msg => { st.className = 'rstatus'; st.replaceChildren(workingEl(msg)); };
+  const note = (msg, err) => { st.className = 'rstatus' + (err ? ' err' : ''); st.textContent = msg; };
+  const lock = on => { // no double-fires while a step is in flight
+    [again, go, cancel, ta, mo].forEach(c => { c.disabled = on; });
+    grid.querySelectorAll('img').forEach(i => { i.style.pointerEvents = on ? 'none' : ''; i.style.opacity = on ? '.55' : ''; });
+  };
+  const post = async body => { // network failure must not freeze the gate
+    try { return await (await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, ...body }) })).json(); }
+    catch { return { error: 'request failed — check connection and try again' }; }
+  };
+  if (locked) { lock(true); busy('generating new stills — controls locked'); return; }
   again.onclick = async () => {
-    again.disabled = true; st.textContent = 'generating…';
+    lock(true); busy('generating 4 new stills from your prompt…');
     const d = await (await post({ action: 'new-stills', prompt: ta.value, motion: mo.value })).json();
-    if (d.error) { st.textContent = d.error; again.disabled = false; } else { await refreshJokes(); ensurePolling(); }
+    if (d.error) { note(d.error, true); lock(false); } else { await refreshJokes(); ensurePolling(); }
   };
   go.onclick = async () => {
-    if (picked < 0) { st.textContent = 'pick a still first'; return; }
-    st.textContent = 'rendering…';
+    if (picked < 0) { note('pick a still first'); return; }
+    lock(true); busy('sending to the avatar renderer…');
     const d = await (await post({ action: 'approve-scene', pick, motion: mo.value })).json();
-    if (d.error) { st.textContent = d.error; return; }
+    if (d.error) { note(d.error, true); lock(false); return; }
     await refreshJokes(); setStage('video'); ensurePolling();
   };
   cancel.onclick = async () => {
-    if (!confirm('start over? the stills and voice stay on disk but this job resets')) return;
+    if (!confirm('scrap this job? the stills and voice stay on disk but it resets')) return;
+    lock(true);
     await post({ action: 'cancel' }); await refreshJokes(); renderStage();
   };
 }
@@ -802,7 +827,7 @@ function renderVideo() {
     videoPane.appendChild(hintEl('nothing at the video step yet', 'big'));
   } else {
     videoPane.appendChild(jokeCard(j));
-    if (r.status === 'running') videoPane.appendChild(hintEl(`⏳ ${r.step}… a few minutes`));
+    if (r.status === 'running') videoPane.appendChild(workingEl(r.step === 'publish' ? 'publishing to the gallery…' : 'rendering the take — usually a few minutes'));
     if (['error', 'interrupted'].includes(r.status) && r.step === 'render') {
       videoPane.appendChild(hintEl(`✗ render ${r.status}: ${r.error || ''}`));
       const re = document.createElement('button'); re.className = 'prod'; re.textContent = '↻ retry render (~$0.75)';
@@ -830,19 +855,26 @@ function renderVideo() {
       const bin = document.createElement('button'); bin.className = 'del'; bin.textContent = 'bin it';
       br.append(pub, back, bin);
       videoPane.append(a, br);
+      const lockRow = () => { pub.disabled = back.disabled = bin.disabled = true; };
+      const post = async action => { // network failure must not freeze the gate
+        try { return await (await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action }) })).json(); }
+        catch { return { error: 'request failed — check connection and try again' }; }
+      };
+      const fail = d => { if (d?.error) { pub.disabled = back.disabled = bin.disabled = false; videoPane.appendChild(hintEl(d.error)); return true; } };
       back.onclick = async () => {
-        back.disabled = true;
-        await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'back' }) });
+        lockRow();
+        const d = await post('back'); if (fail(d)) return;
         await refreshJokes(); setStage('image');
       };
       pub.onclick = async () => {
-        pub.disabled = true;
-        await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'publish' }) });
+        lockRow();
+        const d = await post('publish'); if (fail(d)) return;
         await refreshJokes(); renderStage(); ensurePolling();
       };
       bin.onclick = async () => {
         if (!confirm('bin this take? it stays off the gallery')) return;
-        await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'reject' }) });
+        lockRow();
+        const d = await post('reject'); if (fail(d)) return;
         await refreshJokes(); setStage('image');
       };
     }
