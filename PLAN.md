@@ -46,7 +46,7 @@ Your browser talks to the back office, the back office talks to the AI models. N
 Voice conversation, OTP login, scout button, joke cards, the vault, web search. Done and on your phone.
 
 ### Phase 2 — Lock Jacob *(next)*
-The whole product depends on Jacob being the same Jacob every day: one face, one outfit, one voice. Generate a character sheet (front + profile, outfit, look) and cast his voice — you approve both. His voice may or may not be the scout's voice; worth deciding whether the character should sound different from your assistant. These become the references every video is built from.
+The whole product depends on Jacob being the same Jacob every day: one face, one outfit, one voice. Done: three turnaround references staged in `projects/joke-factory/jacob/` (front, left, right) plus a written character sheet — same grey hoodie/orange top/vest/cargo shorts/blue leggings/neon runners. Voice locked too: Jacob speaks with your ElevenLabs voice — the same one the scout uses. These become the references every video is built from.
 
 ### Phase 3 — The joke machine
 The repeatable loop for every accepted joke: joke text → Jacob's voice reads it → a video model puts Jacob in a setting, lip-synced to the audio → a short clip ready for social. Same pipeline every time; only the joke and the backdrop change. The voice half is already working — this phase is the video half plus assembly.
