@@ -791,7 +791,8 @@ function renderStillGate(pane, j, locked) {
   const mo = document.createElement('input'); mo.value = r.motion || ''; mo.placeholder = 'movement direction';
   const rr = document.createElement('div'); rr.className = 'rrow';
   const again = document.createElement('button'); again.textContent = '↻ 4 new from this prompt (~$0.25)';
-  const go = document.createElement('button'); go.textContent = 'render picked (~$0.75)';
+  const go = document.createElement('button'); go.textContent = '▶ make the video (~$0.75)';
+  go.title = 'approves the picked still and starts the avatar render';
   if (picked >= 0) go.classList.add('prod'); // only green once a still is chosen
   const cancel = document.createElement('button'); cancel.textContent = '✕ scrap job';
   cancel.title = 'scrap these stills and this job, back to direction';
