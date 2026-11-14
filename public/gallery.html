@@ -15,10 +15,12 @@
   header a.room { margin-left:auto; font-size:.8rem; color:#aaa; text-decoration:none; border:1px solid #333; padding:6px 12px; border-radius:999px; }
   header a.room:hover { color:#fff; border-color:#666; }
   #grid { max-width:860px; margin:0 auto; padding:18px 14px 60px; display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; }
-  .tile { position:relative; aspect-ratio:9/16; background:#13131c; border:1px solid #23232f; border-radius:12px; overflow:hidden; cursor:pointer; padding:0; }
+  .tile { position:relative; width:100%; aspect-ratio:9/16; background:#13131c; border:1px solid #23232f; border-radius:12px; overflow:hidden; cursor:pointer; padding:0; }
   .tile img { width:100%; height:100%; object-fit:cover; display:block; }
   .tile .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:1.6rem; color:#fff; background:linear-gradient(transparent 55%, rgba(0,0,0,.65)); text-shadow:0 2px 8px #000; }
   .tile .teaser { position:absolute; left:8px; right:8px; bottom:8px; font-size:.62rem; line-height:1.3; color:#ddd; text-align:left; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .vcount { text-align:center; font-size:.68rem; color:#777; margin-top:5px; }
+  .vcount .u { color:#3ddc84; } .vcount .d { color:#e2483d; }
   #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center; z-index:10; padding:16px; }
   #lightbox.open { display:flex; }
   #lbCard { width:100%; max-width:400px; max-height:100%; overflow-y:auto; background:#13131c; border:1px solid #23232f; border-radius:16px; overflow-x:hidden; }
@@ -116,6 +118,7 @@ function open(c) {
 }
 function close() { lb.classList.remove('open'); lbVideo.pause(); lbVideo.removeAttribute('src'); lbVideo.load(); }
 for (const c of clips) {
+  const cell = document.createElement('div');
   const tile = document.createElement('button');
   tile.className = 'tile';
   tile.onclick = () => open(c);
@@ -131,7 +134,13 @@ for (const c of clips) {
     const t = document.createElement('div'); t.className = 'teaser'; t.textContent = c.joke;
     tile.appendChild(t);
   }
-  grid.appendChild(tile);
+  cell.appendChild(tile);
+  const vc = document.createElement('div');
+  vc.className = 'vcount';
+  const up = c.votes?.up || 0, down = c.votes?.down || 0;
+  vc.innerHTML = `<span class="u">👍 ${up}</span> · <span class="d">👎 ${down}</span>`;
+  cell.appendChild(vc);
+  grid.appendChild(cell);
 }
 document.getElementById('lbClose').onclick = close;
 lb.onclick = e => { if (e.target === lb) close(); };
