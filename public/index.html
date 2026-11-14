@@ -805,20 +805,24 @@ function renderStillGate(pane, j, locked) {
     [again, go, cancel, ta, mo].forEach(c => { c.disabled = on; });
     grid.querySelectorAll('img').forEach(i => { i.style.pointerEvents = on ? 'none' : ''; i.style.opacity = on ? '.55' : ''; });
   };
-  const post = async body => { // network failure must not freeze the gate
-    try { return await (await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, ...body }) })).json(); }
-    catch { return { error: 'request failed — check connection and try again' }; }
+  const post = async body => { // network failure or hang must not freeze the gate
+    try {
+      const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 30000);
+      const r = await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, ...body }), signal: ctrl.signal });
+      clearTimeout(t);
+      return await r.json();
+    } catch { return { error: 'request failed or timed out — check connection and try again' }; }
   };
   if (locked) { lock(true); busy('generating new stills — controls locked'); tickLine(st, j); return; }
   again.onclick = async () => {
     lock(true); busy('generating 4 new stills from your prompt…');
-    const d = await (await post({ action: 'new-stills', prompt: ta.value, motion: mo.value })).json();
+    const d = await post({ action: 'new-stills', prompt: ta.value, motion: mo.value });
     if (d.error) { note(d.error, true); lock(false); } else { await refreshJokes(); ensurePolling(); }
   };
   go.onclick = async () => {
     if (picked < 0) { note('pick a still first'); return; }
     lock(true); busy('sending to the avatar renderer…');
-    const d = await (await post({ action: 'approve-scene', pick, motion: mo.value })).json();
+    const d = await post({ action: 'approve-scene', pick, motion: mo.value });
     if (d.error) { note(d.error, true); lock(false); return; }
     await refreshJokes(); setStage('video'); ensurePolling();
   };
@@ -887,9 +891,13 @@ function renderVideo() {
       br.append(pub, back, bin);
       videoPane.append(a, br);
       const lockRow = () => { pub.disabled = back.disabled = bin.disabled = true; };
-      const post = async action => { // network failure must not freeze the gate
-        try { return await (await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action }) })).json(); }
-        catch { return { error: 'request failed — check connection and try again' }; }
+      const post = async action => { // network failure or hang must not freeze the gate
+        try {
+          const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 30000);
+          const r = await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action }), signal: ctrl.signal });
+          clearTimeout(t);
+          return await r.json();
+        } catch { return { error: 'request failed or timed out — check connection and try again' }; }
       };
       const fail = d => { if (d?.error) { pub.disabled = back.disabled = bin.disabled = false; videoPane.appendChild(hintEl(d.error)); return true; } };
       back.onclick = async () => {
