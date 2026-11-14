@@ -315,6 +315,18 @@ app.post('/api/jokes/edit', (req, res) => {
   res.json({ ok: true, joke: hit.list[hit.i] });
 });
 
+app.post('/api/jokes/add', (req, res) => {
+  const { text, to } = req.body || {};
+  if (typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'text required' });
+  if (to !== 'accepted' && to !== 'rejected') return res.status(400).json({ error: 'to must be accepted|rejected' });
+  if (seenSet().has(norm(text))) return res.status(409).json({ error: 'already in the vault' });
+  const joke = { id: crypto.randomBytes(8).toString('hex'), text: text.trim(), ts: new Date().toISOString(), manual: true };
+  const list = stores[to].load();
+  list.push(joke);
+  stores[to].save(list);
+  res.json({ ok: true, joke });
+});
+
 app.post('/api/jokes/delete', (req, res) => {
   const hit = findInStores(req.body?.id);
   if (!hit) return res.status(404).json({ error: 'joke not found' });
