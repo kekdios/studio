@@ -90,6 +90,19 @@ async function sendOtpEmail(to, code) {
   const { key, domain } = resendConfig();
   if (!key) throw new Error('resend not configured');
   const from = `ReelEnder Studio <login@${domain || 'resend.dev'}>`;
+  const html = `
+  <div style="background:#f2f2f7; padding:40px 16px; font-family:-apple-system,Helvetica,Arial,sans-serif;">
+    <div style="max-width:420px; margin:0 auto; background:#ffffff; border-radius:12px; padding:32px 28px; box-shadow:0 1px 4px rgba(0,0,0,.08);">
+      <h1 style="margin:0 0 20px; text-align:center; font-size:22px; font-weight:700; color:#ff7a18;">ReelEnder</h1>
+      <hr style="border:none; border-top:1px solid #e5e5ea; margin:0 0 20px;">
+      <p style="margin:0 0 12px; font-size:15px; color:#333;">Dear Joke Curator,</p>
+      <p style="margin:0 0 18px; font-size:15px; color:#333;">Your one-time sign-in code is:</p>
+      <div style="text-align:center; font-size:34px; font-weight:700; letter-spacing:6px; color:#2d7a4f; margin:0 0 18px;">${code}</div>
+      <p style="margin:0 0 16px; font-size:13px; color:#555; line-height:1.5;">Use this code to complete your sign-in. It expires in <strong>10 minutes</strong> — please don't share it with anyone.</p>
+      <p style="margin:0 0 24px; font-size:13px; color:#555;">Thank you for keeping Jacob's material safe.</p>
+      <p style="margin:0; text-align:center; font-size:11px; color:#999;">© 2026 ReelEnder · <a href="https://reelender.com" style="color:#999;">reelender.com</a></p>
+    </div>
+  </div>`;
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -97,7 +110,8 @@ async function sendOtpEmail(to, code) {
       from,
       to: [to],
       subject: `${code} — your ReelEnder sign-in code`,
-      text: `Your ReelEnder Studio sign-in code is ${code}. It expires in 10 minutes.`,
+      text: `Your ReelEnder sign-in code is ${code}. It expires in 10 minutes — don't share it with anyone.`,
+      html,
     }),
   });
   const data = await res.json();
