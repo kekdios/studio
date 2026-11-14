@@ -12,6 +12,8 @@
   header img { height:34px; border-radius:8px; }
   header h1 { font-size:1rem; font-weight:600; margin:0; }
   header .sub { color:#777; font-size:.8rem; }
+  header a.room { margin-left:auto; font-size:.8rem; color:#aaa; text-decoration:none; border:1px solid #333; padding:6px 12px; border-radius:999px; }
+  header a.room:hover { color:#fff; border-color:#666; }
   #grid { max-width:860px; margin:0 auto; padding:18px 14px 60px; display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; }
   .tile { position:relative; aspect-ratio:9/16; background:#13131c; border:1px solid #23232f; border-radius:12px; overflow:hidden; cursor:pointer; padding:0; }
   .tile img { width:100%; height:100%; object-fit:cover; display:block; }
@@ -36,6 +38,7 @@
 <header>
   <img src="/reelenderlogosq.png" alt="">
   <div><h1>Jacob</h1><div class="sub">a joke a day</div></div>
+  <a class="room" href="/">← joke room</a>
 </header>
 <div id="grid"><div class="empty">loading…</div></div>
 <div id="lightbox">
