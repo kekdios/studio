@@ -213,6 +213,90 @@ app.post('/api/turn', async (req, res) => {
   }
 });
 
+// --- joke factory ---
+const JF_DIR = path.join(ROOT, 'projects', 'joke-factory');
+const JF_AUDIO = path.join(JF_DIR, 'audio');
+const ACCEPTED_F = path.join(JF_DIR, 'accepted.jsonl');
+const REJECTED_F = path.join(JF_DIR, 'rejected.jsonl');
+const PENDING_F = path.join(JF_DIR, 'pending.json');
+fs.mkdirSync(JF_AUDIO, { recursive: true });
+const SCOUT = fs.readFileSync(path.join(ROOT, 'config', 'joke_scout_prompt.md'), 'utf8');
+app.use('/joke-audio', express.static(JF_AUDIO));
+
+const readJsonl = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } };
+const appendJsonl = (f, o) => fs.appendFileSync(f, JSON.stringify(o) + '\n');
+const loadPending = () => { try { return JSON.parse(fs.readFileSync(PENDING_F, 'utf8')); } catch { return []; } };
+const savePending = p => fs.writeFileSync(PENDING_F, JSON.stringify(p));
+const norm = s => s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+const seenSet = () => new Set([...readJsonl(ACCEPTED_F), ...readJsonl(REJECTED_F)].map(j => norm(j.text)));
+const findJoke = id => [...loadPending(), ...readJsonl(ACCEPTED_F)].find(j => j.id === id);
+
+app.get('/api/jokes', (req, res) => res.json({
+  accepted: readJsonl(ACCEPTED_F),
+  rejected_count: readJsonl(REJECTED_F).length,
+  pending: loadPending(),
+}));
+
+app.post('/api/jokes/fetch', async (req, res) => {
+  try {
+    const count = Math.min(Math.max(parseInt(req.body?.count) || 3, 1), 10);
+    const direction = loadTranscript().filter(e => e.role === 'user').slice(-4).map(e => e.text).join(' | ');
+    const rejectedSample = readJsonl(REJECTED_F).slice(-25).map(j => j.text);
+    const seen = seenSet();
+    const prompt = `Director's recent notes: ${direction || 'none yet — bring a variety'}.\n`
+      + `Already-seen jokes to avoid (rejected sample): ${JSON.stringify(rejectedSample)}.\n`
+      + `Bring me ${count} new jokes.`;
+    const reply = await ng.chat([
+      { role: 'system', content: SCOUT },
+      { role: 'user', content: prompt },
+    ], MODELS.producer_brain);
+    const m = reply.text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('scout returned no JSON');
+    const jokes = JSON.parse(m[0]).jokes || [];
+    const pending = loadPending();
+    const fresh = jokes.map(t => String(t).trim()).filter(t => t && !seen.has(norm(t)));
+    const out = fresh.map(text => {
+      const j = { id: crypto.randomBytes(8).toString('hex'), text, ts: new Date().toISOString() };
+      pending.push(j); return j;
+    });
+    savePending(pending);
+    res.json({ jokes: out, dropped: jokes.length - out.length, cost: reply.cost });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/jokes/decide', (req, res) => {
+  const { id, decision } = req.body || {};
+  const pending = loadPending();
+  const i = pending.findIndex(j => j.id === id);
+  if (i === -1) return res.status(404).json({ error: 'joke not pending' });
+  const [joke] = pending.splice(i, 1);
+  savePending(pending);
+  appendJsonl(decision === 'accepted' ? ACCEPTED_F : REJECTED_F, joke);
+  res.json({ ok: true, decision });
+});
+
+app.post('/api/jokes/speak', async (req, res) => {
+  try {
+    const joke = findJoke(req.body?.id);
+    if (!joke) return res.status(404).json({ error: 'joke not found' });
+    if (joke.audio) return res.json({ audioUrl: joke.audio });
+    const audioFile = `joke-${joke.id}.mp3`;
+    fs.writeFileSync(path.join(JF_AUDIO, audioFile), await ng.speak(joke.text, MODELS.tts, MODELS.tts_voice));
+    joke.audio = `/joke-audio/${audioFile}`;
+    const pending = loadPending();
+    const i = pending.findIndex(j => j.id === joke.id);
+    if (i !== -1) { pending[i] = joke; savePending(pending); }
+    res.json({ audioUrl: joke.audio });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+// --- end joke factory ---
+
 app.get('/api/transcript', (req, res) => res.json(loadTranscript()));
 
 app.post('/api/session/new', (req, res) => {

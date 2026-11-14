@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReelEnder — Writers' Room</title>
+<title>ReelEnder — The Joke Room</title>
 <style>
   * { box-sizing: border-box; }
   body { margin:0; min-height:100vh; display:flex; flex-direction:column; background:#0a0a0f; color:#eee; font-family:-apple-system,system-ui,sans-serif; }
@@ -11,7 +11,8 @@
   header img { height:36px; }
   header h1 { font-size:1rem; font-weight:600; margin:0; }
   header .sub { color:#777; font-size:.8rem; }
-  #balance { margin-left:auto; font-size:.75rem; color:#666; }
+  #kept { margin-left:auto; font-size:.75rem; color:#3ddc84; }
+  #balance { font-size:.75rem; color:#666; margin-left:12px; }
   #newSession { margin-left:10px; background:#1c1c26; border:1px solid #333; color:#aaa; font-size:.72rem; padding:4px 10px; border-radius:6px; cursor:pointer; }
   #newSession:hover { color:#fff; border-color:#555; }
 
@@ -24,12 +25,31 @@
   .replay:hover { opacity:1; }
   .cost { font-size:.65rem; opacity:.45; }
 
+  .joke { align-self:stretch; background:#16161f; border:1px solid #2a2a3a; border-radius:14px; padding:14px 16px; }
+  .joke .txt { font-size:1rem; line-height:1.5; margin-bottom:10px; }
+  .joke .actions { display:flex; gap:8px; }
+  .joke button { border:1px solid #3a3a4a; background:#1c1c26; color:#ddd; font-size:.8rem; padding:6px 12px; border-radius:8px; cursor:pointer; }
+  .joke button:hover { border-color:#666; }
+  .joke button.keep { border-color:#2d7a4f; }
+  .joke button.keep:hover { background:#173a26; }
+  .joke button.toss { border-color:#7a2d2d; }
+  .joke button.toss:hover { background:#3a1717; }
+  .joke .verdict { font-size:.78rem; font-weight:600; }
+  .joke.kept { border-color:#2d7a4f; opacity:.75; }
+  .joke.kept .verdict { color:#3ddc84; }
+  .joke.tossed { opacity:.45; }
+  .joke.tossed .verdict { color:#e2483d; }
+  .joke .tag { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; opacity:.5; margin-bottom:6px; }
+
   #controls { border-top:1px solid #1c1c26; padding:16px 20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
   #status { font-size:.8rem; color:#888; min-height:1.2em; }
+  #btnRow { display:flex; gap:14px; align-items:center; }
   #mic { width:72px; height:72px; border-radius:50%; border:none; cursor:pointer; font-size:1.7rem; background:linear-gradient(135deg,#ff7a18,#e2483d); color:#fff; transition:transform .1s, box-shadow .2s; }
   #mic:hover { transform:scale(1.05); }
   #mic.recording { background:linear-gradient(135deg,#3ddc84,#1fa); box-shadow:0 0 0 8px rgba(61,220,132,.15); animation:pulse 1.2s infinite; }
   @keyframes pulse { 50% { box-shadow:0 0 0 14px rgba(61,220,132,.07); } }
+  #scout { background:linear-gradient(135deg,#2d7a4f,#1f6); border:none; color:#fff; font-size:.85rem; font-weight:600; padding:12px 18px; border-radius:12px; cursor:pointer; }
+  #scout:disabled { opacity:.4; cursor:default; }
   #textRow { display:flex; gap:8px; width:100%; max-width:560px; }
   #textRow input { flex:1; background:#1c1c26; border:1px solid #333; border-radius:8px; color:#eee; padding:8px 12px; font-size:.9rem; }
   #textRow button { background:#2a2a3a; border:1px solid #444; color:#ddd; padding:8px 14px; border-radius:8px; cursor:pointer; }
@@ -38,7 +58,8 @@
 <body>
 <header>
   <img src="/reelenderlogosq.png" alt="">
-  <div><h1>Writers' Room</h1><div class="sub">develop the script with your producer</div></div>
+  <div><h1>The Joke Room</h1><div class="sub">curate Jacob's material</div></div>
+  <span id="kept"></span>
   <span id="balance"></span>
   <button id="newSession">new session</button>
 </header>
@@ -46,10 +67,13 @@
 <div id="transcript"></div>
 
 <div id="controls">
-  <div id="status">press the mic and pitch your idea</div>
-  <button id="mic">🎙</button>
+  <div id="status">talk to the scout, or pull a batch of jokes</div>
+  <div id="btnRow">
+    <button id="scout">🃏 scout jokes</button>
+    <button id="mic">🎙</button>
+  </div>
   <div id="textRow">
-    <input id="textInput" placeholder="…or type it instead" />
+    <input id="textInput" placeholder="direct the scout — 'more puns', 'work jokes'… or just talk" />
     <button id="sendText">send</button>
   </div>
 </div>
@@ -58,16 +82,18 @@
 const transcriptEl = document.getElementById('transcript');
 const statusEl = document.getElementById('status');
 const micBtn = document.getElementById('mic');
+const scoutBtn = document.getElementById('scout');
 let recorder = null, chunks = [], recording = false;
 
 function setStatus(s) { statusEl.textContent = s; }
+function setKept(n) { document.getElementById('kept').textContent = n ? `kept: ${n}` : ''; }
 
 function renderTurn(e) {
   const div = document.createElement('div');
   div.className = 'turn ' + (e.role === 'user' ? 'user' : 'assistant');
   const who = document.createElement('div');
   who.className = 'who';
-  who.textContent = e.role === 'user' ? 'you' : 'producer';
+  who.textContent = e.role === 'user' ? 'you' : 'scout';
   if (e.audio && e.role === 'assistant') {
     const r = document.createElement('span');
     r.className = 'replay'; r.textContent = '▶';
@@ -85,19 +111,81 @@ function renderTurn(e) {
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
 }
 
+function renderJoke(j) {
+  const card = document.createElement('div');
+  card.className = 'joke';
+  card.dataset.id = j.id;
+  card.innerHTML = `<div class="tag">candidate</div><div class="txt"></div><div class="actions"></div>`;
+  card.querySelector('.txt').textContent = j.text;
+  const actions = card.querySelector('.actions');
+
+  const hear = document.createElement('button');
+  hear.textContent = '🔊 hear it';
+  hear.onclick = async () => {
+    hear.textContent = '…';
+    const r = await fetch('/api/jokes/speak', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id}) });
+    const d = await r.json();
+    hear.textContent = '🔊 hear it';
+    if (d.audioUrl) new Audio(d.audioUrl).play();
+  };
+
+  const keep = document.createElement('button');
+  keep.className = 'keep'; keep.textContent = '✅ keep';
+  const toss = document.createElement('button');
+  toss.className = 'toss'; toss.textContent = '❌ toss';
+
+  const decide = async (decision) => {
+    const r = await fetch('/api/jokes/decide', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, decision}) });
+    if (!r.ok) return;
+    card.classList.add(decision === 'accepted' ? 'kept' : 'tossed');
+    actions.innerHTML = `<span class="verdict">${decision === 'accepted' ? 'kept' : 'tossed'}</span>`;
+    actions.prepend(hear);
+    loadCounts();
+  };
+  keep.onclick = () => decide('accepted');
+  toss.onclick = () => decide('rejected');
+  actions.append(hear, keep, toss);
+  transcriptEl.appendChild(card);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
+async function loadCounts() {
+  const d = await (await fetch('/api/jokes')).json();
+  setKept(d.accepted.length);
+}
 async function loadTranscript() {
   const turns = await (await fetch('/api/transcript')).json();
   turns.forEach(renderTurn);
-  if (turns.length) setStatus('pick up where you left off — or start a new session');
+  const d = await (await fetch('/api/jokes')).json();
+  setKept(d.accepted.length);
+  d.pending.forEach(renderJoke);
+  if (turns.length || d.pending.length) setStatus('pick up where you left off');
 }
 
 async function loadBalance() {
   try {
     const b = await (await fetch('/api/balance')).json();
     if (b.usd_spendable_balance != null)
-      document.getElementById('balance').textContent = 'nano-gpt balance: $' + Number(b.usd_spendable_balance).toFixed(2);
+      document.getElementById('balance').textContent = '$' + Number(b.usd_spendable_balance).toFixed(2);
   } catch {}
 }
+
+scoutBtn.onclick = async () => {
+  scoutBtn.disabled = true;
+  setStatus('scout is hunting for jokes…');
+  try {
+    const r = await fetch('/api/jokes/fetch', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({count:3}) });
+    const d = await r.json();
+    if (!r.ok) { setStatus('scout error: ' + (d.error || r.status)); }
+    else if (!d.jokes.length) { setStatus('nothing new — all repeats or empty haul'); }
+    else {
+      d.jokes.forEach(renderJoke);
+      setStatus(`${d.jokes.length} candidates — hear them, keep or toss`);
+    }
+  } catch(e) { setStatus('scout failed'); }
+  scoutBtn.disabled = false;
+  loadBalance();
+};
 
 async function sendTurn(body, headers) {
   setStatus('transcribing… thinking…');
@@ -107,7 +195,7 @@ async function sendTurn(body, headers) {
   if (data.userText) renderTurn({ role:'user', text:data.userText });
   if (data.replyText) {
     renderTurn({ role:'assistant', text:data.replyText, audio:data.audioUrl, cost:data.cost });
-    setStatus('producer is speaking…');
+    setStatus('scout is speaking…');
     const a = new Audio(data.audioUrl);
     a.onended = () => setStatus('your turn');
     a.onerror = () => setStatus('your turn');
@@ -153,7 +241,7 @@ document.getElementById('newSession').onclick = async () => {
   if (!confirm('Start a fresh session? The current transcript is archived.')) return;
   await fetch('/api/session/new', { method: 'POST' });
   transcriptEl.innerHTML = '';
-  setStatus('clean page — pitch your idea');
+  setStatus('clean page — talk to the scout');
 };
 
 loadTranscript();

@@ -1,5 +1,5 @@
 {
-  "producer_brain": "anthropic/claude-sonnet-5.5",
+  "producer_brain": "anthropic/claude-sonnet-5.5:online",
   "stt": "Whisper-Large-V3",
   "tts": "gpt-4o-mini-tts",
   "tts_voice": "onyx"
