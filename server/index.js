@@ -579,6 +579,8 @@ async function jobScenes(job) {
       { input_references: [ng.dataUrl(JACOB_FRONT)], aspect_ratio: job.orientation || '9:16', resolution: '1k' })
       .then(bufs => fs.writeFileSync(path.join(dir, `scene-${i}.png`), bufs[0]))));
   const ok = results.filter(r => r.status === 'fulfilled').length;
+  rlog(`${job.id} stills ${ok}/4 generated`);
+  results.forEach((r, i) => { if (r.status === 'rejected') rlog(`${job.id} still ${i + 1} failed: ${r.reason?.message}`); });
   if (!ok) throw new Error('all 4 stills failed: ' + (results[0].reason?.message || 'unknown'));
   job.scenes = [1, 2, 3, 4]
     .map(i => fs.existsSync(path.join(dir, `scene-${i}.png`)) ? `/renders-media/${job.id}/scene-${i}.png` : null)
@@ -595,7 +597,8 @@ async function jobRender(job, joke) {
   }, {
     onTick: s => { // surface whatever the provider reports (queue/progress/eta)
       const d = s.data || s;
-      if (!job.runId && (s.requestId || d.requestId)) job.runId = s.requestId || d.requestId;
+      if (!job.runId && (s.requestId || d.requestId)) { job.runId = s.requestId || d.requestId; rlog(`${job.id} video submitted runId=${job.runId}`); }
+      if (job._prov !== d.status) { rlog(`${job.id} provider: ${d.status}`); job._prov = d.status; }
       job.provider = { status: d.status, progress: d.progress ?? null, eta: d.estimatedTimeRemaining ?? null };
       saveRenderJobs();
     },
@@ -630,19 +633,31 @@ async function jobPublish(job, joke) {
     stores.accepted.save(hit.list);
   }
   job.clipId = clipId; job.clipUrl = '/clips';
+  rlog(`${job.id} published → ${clipId}`);
 }
 
-const failJob = (job, e) => { console.error('render failed:', e); job.status = 'error'; job.error = e.message; saveRenderJobs(); };
+const RENDER_LOG = [];
+const rlog = msg => {
+  const line = `${new Date().toISOString().slice(11, 19)} ${msg}`;
+  RENDER_LOG.push(line);
+  if (RENDER_LOG.length > 120) RENDER_LOG.shift();
+  console.log('render:', line);
+};
+app.get('/api/jokes/render-log', (req, res) => res.json(RENDER_LOG.slice(-60)));
+
+const failJob = (job, e) => { console.error('render failed:', e); rlog(`${job.id} ERROR ${e.message}`); job.status = 'error'; job.error = e.message; saveRenderJobs(); };
 const cancelled = job => job.status === 'cancelled';
 
 // voice + 4 stills, then stop and wait for the director
 async function toSceneGate(job, joke) {
   try {
+    rlog(`${job.id} job start: voice → stills`);
     await jobVoice(job, joke);
     if (cancelled(job)) return;
     await jobScenes(job);
     if (cancelled(job)) return;
     job.status = 'awaiting_scene';
+    rlog(`${job.id} gate: awaiting scene pick`);
   } catch (e) { return failJob(job, e); }
   saveRenderJobs();
 }
@@ -650,9 +665,11 @@ async function toSceneGate(job, joke) {
 // avatar render, then stop and wait for publish/bin
 async function toPublishGate(job, joke) {
   try {
+    rlog(`${job.id} render start (scene ${job.pick != null ? job.pick + 1 : '?'})`);
     await jobRender(job, joke);
     if (cancelled(job)) return;
     job.status = 'awaiting_publish';
+    rlog(`${job.id} gate: awaiting publish${job.renderDone && job.renderStarted ? ` (rendered in ${Math.round((Date.parse(job.renderDone) - Date.parse(job.renderStarted)) / 1000)}s)` : ''}`);
   } catch (e) { return failJob(job, e); }
   saveRenderJobs();
 }
@@ -719,6 +736,7 @@ app.post('/api/jokes/render', async (req, res) => {
 
 app.post('/api/jokes/render-action', (req, res) => {
   const { jokeId, action, prompt, motion, pick } = req.body || {};
+  rlog(`action: ${action} joke=${jokeId}${pick != null ? ` pick=${pick}` : ''}`);
   const job = renderJobs.get(jokeId);
   if (!job) return res.status(404).json({ error: 'no render job for that joke' });
   const joke = findJoke(jokeId);

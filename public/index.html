@@ -112,6 +112,12 @@
   #stageBar .stab:disabled { opacity:.35; cursor:default; }
   #stageBar .stab .dot { position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:50%; background:#e8b84b; }
   #workOn { margin-left:auto; font-size:.72rem; color:#777; max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #dbgBtn { background:none; border:1px solid #333; color:#666; font-size:.72rem; padding:4px 10px; border-radius:999px; cursor:pointer; }
+  #dbgBtn:hover { color:#aaa; }
+  #dbg { position:fixed; left:0; right:0; bottom:0; max-height:38vh; background:#0b0b12; border-top:1px solid #2a2a3a; z-index:40; display:flex; flex-direction:column; }
+  #dbgHead { display:flex; justify-content:space-between; align-items:center; padding:6px 14px; font-size:.72rem; color:#888; border-bottom:1px solid #1c1c26; }
+  #dbgHead button { background:none; border:none; color:#888; font-size:1rem; cursor:pointer; }
+  #dbgLog { margin:0; padding:8px 14px; overflow-y:auto; font:11px/1.6 Menlo,monospace; color:#9a9ab0; flex:1; white-space:pre-wrap; word-break:break-word; }
   .pane { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:640px; width:100%; margin:0 auto; }
   .pane .phint { color:#777; font-size:.85rem; }
   .pane .phint.big { text-align:center; padding:60px 20px; font-size:.95rem; }
@@ -163,7 +169,13 @@
   <button class="stab" data-s="image">2 · image</button>
   <button class="stab" data-s="video" disabled>3 · video</button>
   <span id="workOn"></span>
+  <button id="dbgBtn">log</button>
 </nav>
+
+<div id="dbg" hidden>
+  <div id="dbgHead"><span>debug log — live pipeline events</span><button id="dbgClose">&times;</button></div>
+  <pre id="dbgLog">…</pre>
+</div>
 
 <section id="stage-voice"><div id="transcript"></div></section>
 <section id="stage-image" hidden><div id="imagePane" class="pane"></div></section>
@@ -594,6 +606,22 @@ function setStage(s) {
   renderStage();
 }
 document.querySelectorAll('#stageBar .stab').forEach(b => { b.onclick = () => setStage(b.dataset.s); });
+
+// debug drawer — live pipeline log, poll while open
+let dbgT = null;
+const dbgEl = document.getElementById('dbg'), dbgLog = document.getElementById('dbgLog');
+const dbgPull = async () => {
+  try {
+    dbgLog.textContent = (await (await fetch('/api/jokes/render-log')).json()).join('\n') || '(nothing yet)';
+    dbgLog.scrollTop = dbgLog.scrollHeight;
+  } catch { dbgLog.textContent = '(log unavailable)'; }
+};
+document.getElementById('dbgBtn').onclick = () => {
+  dbgEl.hidden = !dbgEl.hidden;
+  clearInterval(dbgT); dbgT = null;
+  if (!dbgEl.hidden) { dbgPull(); dbgT = setInterval(dbgPull, 5000); }
+};
+document.getElementById('dbgClose').onclick = () => { dbgEl.hidden = true; clearInterval(dbgT); dbgT = null; };
 
 function renderStage() {
   clearInterval(liveTick); liveTick = null;
