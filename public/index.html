@@ -68,6 +68,8 @@
   .joke.tossed { opacity:.45; }
   .joke.tossed .verdict { color:#e2483d; }
   .joke .tag { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; opacity:.5; margin-bottom:6px; }
+  .joke .dupe { display:block; width:100%; text-align:left; font-size:.72rem; color:#e8b84b; background:#221d10; border:1px solid #5a4a1a; border-radius:8px; padding:6px 10px; margin-bottom:10px; cursor:pointer; line-height:1.4; }
+  .joke .dupe.open { color:#ffd97a; }
 
   #controls { border-top:1px solid #1c1c26; padding:16px 20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
   #status { font-size:.8rem; color:#888; min-height:1.2em; }
@@ -178,6 +180,19 @@ function renderJoke(j) {
   card.innerHTML = `<div class="tag">candidate</div><div class="txt"></div><div class="actions"></div>`;
   card.querySelector('.txt').textContent = j.text;
   const actions = card.querySelector('.actions');
+  if (j.similar) {
+    const warn = document.createElement('button');
+    warn.className = 'dupe';
+    const label = `⚠ ~${Math.round(j.similar.score*100)}% like a ${j.similar.where} joke — tap to compare`;
+    warn.textContent = label;
+    warn.onclick = () => {
+      warn.classList.toggle('open');
+      warn.textContent = warn.classList.contains('open')
+        ? `⚠ in the ${j.similar.where} list: “${j.similar.text}”`
+        : label;
+    };
+    card.insertBefore(warn, actions);
+  }
 
   const hear = document.createElement('button');
   hear.textContent = '🔊 hear it';

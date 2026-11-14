@@ -264,6 +264,25 @@ const findInStores = id => {
   return null;
 };
 const norm = s => s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+const wordSet = s => new Set(norm(s).split(' ').filter(Boolean));
+const jaccard = (a, b) => {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const w of a) if (b.has(w)) inter++;
+  return inter / (a.size + b.size - inter);
+};
+// fuzzy dupe check: best vault match (kept + tossed + pending) for a candidate
+const bestMatch = text => {
+  const cand = wordSet(text);
+  let best = null;
+  for (const [where, list] of [['kept', readJsonl(ACCEPTED_F)], ['tossed', readJsonl(REJECTED_F)], ['pending', loadPending()]]) {
+    for (const j of list) {
+      const score = jaccard(cand, wordSet(j.text));
+      if (score > (best?.score || 0)) best = { score, text: j.text, where };
+    }
+  }
+  return best && best.score >= 0.55 ? best : null;
+};
 const seenSet = () => new Set([...readJsonl(ACCEPTED_F), ...readJsonl(REJECTED_F)].map(j => norm(j.text)));
 const findJoke = id => { const hit = findInStores(id); return hit ? hit.list[hit.i] : null; };
 
@@ -279,7 +298,6 @@ app.post('/api/jokes/fetch', async (req, res) => {
     const count = Math.min(Math.max(parseInt(req.body?.count) || 3, 1), 10);
     const direction = loadTranscript().filter(e => e.role === 'user').slice(-4).map(e => e.text).join(' | ');
     const rejectedSample = readJsonl(REJECTED_F).slice(-25).map(j => j.text);
-    const seen = seenSet();
     const prompt = `Director's recent notes: ${direction || 'none yet — bring a variety'}.\n`
       + `Already-seen jokes to avoid (rejected sample): ${JSON.stringify(rejectedSample)}.\n`
       + `Bring me ${count} new jokes.`;
@@ -291,11 +309,18 @@ app.post('/api/jokes/fetch', async (req, res) => {
     if (!m) throw new Error('scout returned no JSON');
     const jokes = JSON.parse(m[0]).jokes || [];
     const pending = loadPending();
-    const fresh = jokes.map(t => String(t).trim()).filter(t => t && !seen.has(norm(t)));
-    const out = fresh.map(text => {
-      const j = { id: crypto.randomBytes(8).toString('hex'), text, ts: new Date().toISOString() };
-      pending.push(j); return j;
-    });
+    // no silent dropping: keep every candidate, but flag near-dupes so the director can compare
+    const batchSets = [];
+    const out = [];
+    for (const t of jokes.map(t => String(t).trim()).filter(Boolean)) {
+      const cand = wordSet(t);
+      if (batchSets.some(s => jaccard(cand, s) >= 0.8)) continue; // same joke twice in one batch
+      batchSets.push(cand);
+      const j = { id: crypto.randomBytes(8).toString('hex'), text: t, ts: new Date().toISOString() };
+      const sim = bestMatch(t);
+      if (sim) j.similar = sim;
+      pending.push(j); out.push(j);
+    }
     savePending(pending);
     res.json({ jokes: out, dropped: jokes.length - out.length, cost: reply.cost });
   } catch (e) {
