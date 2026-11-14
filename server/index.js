@@ -231,15 +231,22 @@ app.post('/api/turn', async (req, res) => {
     appendTurn('user', userText, userAudio ? { audio: userAudio } : {});
 
     const reply = await ng.chat(historyForModel(), MODELS.producer_brain);
-    const replyText = reply.text.trim();
+    const wantsCards = /\[CARDS\]/i.test(reply.text);
+    const replyText = reply.text.replace(/\[CARDS\]/gi, '').trim();
+
+    // voice-triggered card fetch runs alongside TTS — no extra wait
+    const [spoken, scouted] = await Promise.all([
+      ng.speak(replyText, MODELS.tts, TTS_VOICE),
+      wantsCards ? scoutCards(3).catch(e => { console.error('voice card fetch failed:', e.message); return null; }) : null,
+    ]);
 
     const audioFile = `reply-${Date.now()}.mp3`;
-    fs.writeFileSync(path.join(AUDIO_DIR, audioFile), await ng.speak(replyText, MODELS.tts, TTS_VOICE));
+    fs.writeFileSync(path.join(AUDIO_DIR, audioFile), spoken);
     const audioUrl = `/audio/${audioFile}`;
 
     appendTurn('assistant', replyText, { audio: audioUrl, cost: reply.cost });
 
-    res.json({ userText, replyText, audioUrl, cost: reply.cost });
+    res.json({ userText, replyText, audioUrl, cost: reply.cost, jokes: scouted?.jokes });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -376,36 +383,40 @@ app.get('/api/jokes', (req, res) => {
   });
 });
 
+async function scoutCards(count) {
+  const direction = loadTranscript().filter(e => e.role === 'user').slice(-4).map(e => e.text).join(' | ');
+  const rejectedSample = readJsonl(REJECTED_F).slice(-25).map(j => j.text);
+  const prompt = `Director's recent notes: ${direction || 'none yet — bring a variety'}.\n`
+    + `Already-seen jokes to avoid (rejected sample): ${JSON.stringify(rejectedSample)}.\n`
+    + `Bring me ${count} new jokes.`;
+  const reply = await ng.chat([
+    { role: 'system', content: SCOUT },
+    { role: 'user', content: prompt },
+  ], MODELS.producer_brain);
+  const m = reply.text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('scout returned no JSON');
+  const jokes = JSON.parse(m[0]).jokes || [];
+  const pending = loadPending();
+  // no silent dropping: keep every candidate, but flag near-dupes so the director can compare
+  const batchSets = [];
+  const out = [];
+  for (const t of jokes.map(t => String(t).trim()).filter(Boolean)) {
+    const cand = wordSet(t);
+    if (batchSets.some(s => jaccard(cand, s) >= 0.8)) continue; // same joke twice in one batch
+    batchSets.push(cand);
+    const j = { id: crypto.randomBytes(8).toString('hex'), text: t, ts: new Date().toISOString() };
+    const sim = bestMatch(t);
+    if (sim) j.similar = sim;
+    pending.push(j); out.push(j);
+  }
+  savePending(pending);
+  return { jokes: out, dropped: jokes.length - out.length, cost: reply.cost };
+}
+
 app.post('/api/jokes/fetch', async (req, res) => {
   try {
     const count = Math.min(Math.max(parseInt(req.body?.count) || 3, 1), 10);
-    const direction = loadTranscript().filter(e => e.role === 'user').slice(-4).map(e => e.text).join(' | ');
-    const rejectedSample = readJsonl(REJECTED_F).slice(-25).map(j => j.text);
-    const prompt = `Director's recent notes: ${direction || 'none yet — bring a variety'}.\n`
-      + `Already-seen jokes to avoid (rejected sample): ${JSON.stringify(rejectedSample)}.\n`
-      + `Bring me ${count} new jokes.`;
-    const reply = await ng.chat([
-      { role: 'system', content: SCOUT },
-      { role: 'user', content: prompt },
-    ], MODELS.producer_brain);
-    const m = reply.text.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('scout returned no JSON');
-    const jokes = JSON.parse(m[0]).jokes || [];
-    const pending = loadPending();
-    // no silent dropping: keep every candidate, but flag near-dupes so the director can compare
-    const batchSets = [];
-    const out = [];
-    for (const t of jokes.map(t => String(t).trim()).filter(Boolean)) {
-      const cand = wordSet(t);
-      if (batchSets.some(s => jaccard(cand, s) >= 0.8)) continue; // same joke twice in one batch
-      batchSets.push(cand);
-      const j = { id: crypto.randomBytes(8).toString('hex'), text: t, ts: new Date().toISOString() };
-      const sim = bestMatch(t);
-      if (sim) j.similar = sim;
-      pending.push(j); out.push(j);
-    }
-    savePending(pending);
-    res.json({ jokes: out, dropped: jokes.length - out.length, cost: reply.cost });
+    res.json(await scoutCards(count));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

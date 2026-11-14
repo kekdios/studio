@@ -377,6 +377,7 @@ async function sendTurn(body, headers) {
     a.onerror = () => setStatus('your turn');
     a.play().catch(() => setStatus('tap ▶ on the reply to hear it'));
   } else setStatus('your turn');
+  if (data.jokes?.length) data.jokes.forEach(renderJoke); // voice-triggered batch
   loadBalance();
 }
 
