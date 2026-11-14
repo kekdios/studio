@@ -873,7 +873,7 @@ function renderStillGate(pane, j, locked) {
     if (picked < 0) { note('pick a still first'); return; }
     lock(true); busy('sending image to video agent…');
     const stop = requestTick(st);
-    const d = await post({ action: 'approve-scene', pick, motion: mo.value });
+    const d = await post({ action: 'approve-scene', pick: picked, motion: mo.value });
     stop();
     if (d.error) { note(d.error, true); lock(false); return; }
     await refreshJokes(); setStage('video'); ensurePolling();

@@ -17,6 +17,7 @@ fs.mkdirSync(AUDIO_DIR, { recursive: true });
 
 const app = express();
 app.set('trust proxy', true);
+app.use((req, res, next) => { if (req.method === 'POST') console.log(`POST ${req.path} @${new Date().toISOString().slice(11, 19)}`); next(); });
 app.use(express.json({ limit: '5mb' }));
 
 // --- auth: passphrase login + session cookie (single-user studio) ---
