@@ -500,14 +500,34 @@ const RENDERS_DIR = path.join(JF_DIR, 'renders');
 const RENDER_JOBS_F = path.join(RENDERS_DIR, 'jobs.json');
 const JACOB_FRONT = path.join(JF_DIR, 'jacob', 'jacob-front.png');
 const JACOB_LOOK = 'the man in the photo — keep his face, black beanie, grey zip-up hoodie over bright orange top, blue/black hydration vest, black cargo shorts, bright blue leggings, neon trail runners exactly identical';
-const FRAMINGS = {
-  full: 'full-body head-to-toe shot — his neon trail runners clearly visible in frame',
-  waist: 'mid-shot from the thighs up',
-};
+const ORIENTS = { vertical: '9:16', horizontal: '16:9' };
+const ORIENT_WORDS = { '9:16': 'vertical 9:16', '16:9': 'horizontal 16:9' };
 const DEFAULT_SETTING = 'a dim concrete multi-storey car park at night, lit by cold fluorescent strips';
 const DEFAULT_MOTION = 'The man tells the joke straight to camera, deadpan. Small natural head movements and one small hand gesture, static camera.';
-const scenePrompt = (setting, framing) =>
-  `Put ${JACOB_LOOK} standing in ${setting || DEFAULT_SETTING}. He faces the camera straight on, deadpan, ${FRAMINGS[framing] || FRAMINGS.full}, cinematic realism, vertical 9:16 framing.`;
+const scenePrompt = (setting, orient) =>
+  `Put ${JACOB_LOOK} standing in ${setting || DEFAULT_SETTING}. He faces the camera straight on, deadpan, full-body head-to-toe shot — his neon trail runners clearly visible in frame, cinematic realism, ${ORIENT_WORDS[orient] || ORIENT_WORDS['9:16']} framing.`;
+
+// the producer brain drafts scene + motion from the joke itself; director edits before any spend
+async function aiPrompt(joke, settingHint, orient) {
+  const model = MODELS.producer_brain.replace(/:online.*$/, '');
+  const words = ORIENT_WORDS[orient] || ORIENT_WORDS['9:16'];
+  const r = await ng.chat([
+    { role: 'system', content: `You write prompts for a recurring video character's daily joke clips.
+
+The character is LOCKED. Every "scene" prompt must begin with this exact identity clause:
+"Put the man in the photo — keep his face, black beanie, grey zip-up hoodie over bright orange top, blue/black hydration vest, black cargo shorts, bright blue leggings, neon trail runners exactly identical"
+
+Output JSON only, no other text: {"scene": "...", "motion": "..."}
+
+scene: continue the identity clause with " standing in <SETTING THAT VISUALIZES THE JOKE>" — the place and objects the joke is ABOUT should appear around him (library shelves for a librarian joke, a shoe shop for a shoes joke). He faces the camera straight on, mid-delivery, deadpan. Always a full-body head-to-toe shot with his neon trail runners clearly visible. End with ", cinematic realism, ${words} framing." One paragraph, plain text, no quotes inside.
+
+motion: ONE short animation direction for an audio-driven talking-avatar model. He tells the joke deadpan to camera, plus ONE concrete gesture timed to a word or object in THIS joke (point at it, look down at it, hold it up, glance behind him). Small and natural, static camera. One or two sentences, plain text.` },
+    { role: 'user', content: `Joke: ${joke.text}${settingHint ? `\nSetting the director suggested: ${settingHint} — use or adapt it.` : '\nPick whichever setting suits the joke best.'}` },
+  ], model);
+  const d = JSON.parse(r.text.match(/\{[\s\S]*\}/)?.[0] || '{}');
+  if (!d.scene || !d.motion) throw new Error('incomplete prompt from AI');
+  return d;
+}
 fs.mkdirSync(RENDERS_DIR, { recursive: true });
 app.use('/renders-media', express.static(RENDERS_DIR)); // authed: owner-only render artifacts
 
@@ -556,7 +576,7 @@ async function jobScenes(job) {
   for (const f of fs.readdirSync(dir)) if (f.startsWith('scene-')) fs.rmSync(path.join(dir, f), { force: true });
   const results = await Promise.allSettled([1, 2, 3, 4].map(i =>
     ng.imageGen(MODELS.scene_image, job.prompt,
-      { input_references: [ng.dataUrl(JACOB_FRONT)], aspect_ratio: '9:16', resolution: '1k' })
+      { input_references: [ng.dataUrl(JACOB_FRONT)], aspect_ratio: job.orientation || '9:16', resolution: '1k' })
       .then(bufs => fs.writeFileSync(path.join(dir, `scene-${i}.png`), bufs[0]))));
   const ok = results.filter(r => r.status === 'fulfilled').length;
   if (!ok) throw new Error('all 4 stills failed: ' + (results[0].reason?.message || 'unknown'));
@@ -629,14 +649,23 @@ async function toPublishGate(job, joke) {
   saveRenderJobs();
 }
 
-// free: compose the scene prompt so the director can edit before any spend
-app.post('/api/jokes/render-preview', (req, res) => {
-  const { setting, framing } = req.body || {};
-  res.json({ prompt: scenePrompt((setting || '').trim() || DEFAULT_SETTING, framing), defaultMotion: DEFAULT_MOTION });
+// free: AI drafts the scene + motion prompts so the director can edit before any spend
+app.post('/api/jokes/render-preview', async (req, res) => {
+  const { id, setting, orientation } = req.body || {};
+  const joke = id ? findJoke(id) : null;
+  const orient = ORIENTS[orientation] || '9:16';
+  try {
+    if (!joke) throw new Error('joke not found');
+    const d = await aiPrompt(joke, (setting || '').trim(), orient);
+    return res.json({ prompt: d.scene, defaultMotion: d.motion });
+  } catch (e) {
+    console.error('ai prompt draft failed, using template:', e.message);
+    res.json({ prompt: scenePrompt((setting || '').trim(), orient), defaultMotion: DEFAULT_MOTION });
+  }
 });
 
 app.post('/api/jokes/render', async (req, res) => {
-  const { id, prompt, setting, framing, motion } = req.body || {};
+  const { id, prompt, setting, orientation, motion } = req.body || {};
   const joke = findJoke(id);
   if (!joke) return res.status(404).json({ error: 'joke not found' });
   const existing = renderJobs.get(id);
@@ -648,8 +677,9 @@ app.post('/api/jokes/render', async (req, res) => {
   } catch {}
   const job = {
     id: crypto.randomBytes(6).toString('hex'), jokeId: id, status: 'running', step: 'queued',
-    prompt: (prompt || '').trim() || scenePrompt((setting || '').trim(), framing),
+    prompt: (prompt || '').trim() || scenePrompt((setting || '').trim(), ORIENTS[orientation]),
     motion: (motion || '').trim() || DEFAULT_MOTION,
+    orientation: ORIENTS[orientation] || '9:16',
     ts: new Date().toISOString(),
   };
   renderJobs.set(id, job);

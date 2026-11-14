@@ -52,11 +52,22 @@
   .vscenes { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px; }
   .vscenes img { width:100%; border-radius:8px; border:2px solid transparent; cursor:pointer; display:block; }
   .vscenes img.pick { border-color:#3ddc84; }
-  .vrow .rform { width:100%; display:flex; flex-direction:column; gap:6px; }
-  .vrow .rform input, .vrow .rform select { background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:6px 10px; font:inherit; font-size:.8rem; }
-  .vrow .rform textarea { font-size:.75rem; }
-  .vrow .rform .rrow { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-  .vrow .rform .rstatus { font-size:.72rem; color:#888; }
+  .rform { width:100%; display:flex; flex-direction:column; gap:10px; }
+  .rform input, .rform textarea, .rform select { background:#0e0e17; border:1px solid #2c2c44; color:#e8e8f2; border-radius:10px; padding:11px 13px; font:inherit; font-size:.9rem; width:100%; box-sizing:border-box; outline:none; transition:border-color .15s, box-shadow .15s; }
+  .rform textarea { resize:vertical; line-height:1.55; font-size:.85rem; }
+  .rform select { appearance:none; -webkit-appearance:none; background-image:linear-gradient(45deg, transparent 50%, #8a8aa0 50%), linear-gradient(135deg, #8a8aa0 50%, transparent 50%); background-position:calc(100% - 19px) 50%, calc(100% - 14px) 50%; background-size:5px 5px; background-repeat:no-repeat; cursor:pointer; padding-right:36px; }
+  .rform input:focus, .rform textarea:focus, .rform select:focus { border-color:#5b5bd6; box-shadow:0 0 0 3px rgba(91,91,214,.16); }
+  .rform input::placeholder { color:#4e4e60; }
+  .rform .rrow { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .rform .rstatus { font-size:.75rem; color:#888; }
+  .rform .flabel { font-size:.66rem; text-transform:uppercase; letter-spacing:.08em; color:#777; margin-bottom:-4px; }
+  .pane button { background:#1c1c26; border:1px solid #3a3a4a; color:#ddd; font-size:.82rem; padding:8px 16px; border-radius:999px; cursor:pointer; }
+  .pane button:hover { border-color:#666; color:#fff; }
+  .pane button.prod { border-color:#2d7a4f; color:#3ddc84; }
+  .pane button.prod:hover { background:#173a26; }
+  .pane button.del { border-color:#7a2d2d; }
+  .pane button.del:hover { background:#3a1717; }
+  .pane button:disabled { opacity:.5; cursor:default; }
   .vrow .watch { font-size:.78rem; color:#e8b84b; text-decoration:none; border:1px solid #5a4a1a; padding:4px 10px; border-radius:6px; display:inline-block; margin-bottom:8px; }
   .vrow textarea { width:100%; background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:8px 10px; font:inherit; font-size:.9rem; margin-bottom:8px; resize:vertical; }
   .vempty { text-align:center; color:#555; padding:40px 10px; font-size:.85rem; }
@@ -642,35 +653,38 @@ function renderImage() {
 
 function renderDirection(pane, j) {
   const wrap = document.createElement('div'); wrap.className = 'rform';
-  const setting = document.createElement('input'); setting.placeholder = 'setting — blank = car park at night';
-  const fr = document.createElement('select');
-  fr.innerHTML = '<option value="full">full body (shoes in frame)</option><option value="waist">waist-up</option>';
-  const motion = document.createElement('input'); motion.placeholder = 'movement — blank = default';
+  const lset = document.createElement('div'); lset.className = 'flabel'; lset.textContent = 'setting hint';
+  const setting = document.createElement('input'); setting.placeholder = 'blank = AI picks a setting that suits the joke';
+  const lor = document.createElement('div'); lor.className = 'flabel'; lor.textContent = 'orientation';
+  const or = document.createElement('select');
+  or.innerHTML = '<option value="vertical">vertical (phone)</option><option value="horizontal">horizontal</option>';
   const rr = document.createElement('div'); rr.className = 'rrow';
-  const next = document.createElement('button'); next.className = 'prod'; next.textContent = 'see prompt →';
+  const next = document.createElement('button'); next.className = 'prod'; next.textContent = '✨ write the prompt';
   const st = document.createElement('span'); st.className = 'rstatus';
   rr.append(next, st);
-  wrap.append(setting, fr, motion, rr);
+  wrap.append(lset, setting, lor, or, rr);
   pane.appendChild(wrap);
   next.onclick = async () => {
-    next.disabled = true; st.textContent = 'writing prompt…';
+    next.disabled = true; st.textContent = 'AI is drafting the scene…';
     const d = await (await fetch('/api/jokes/render-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ setting: setting.value, framing: fr.value }) })).json();
+      body: JSON.stringify({ id: j.id, setting: setting.value, orientation: or.value }) })).json();
     wrap.innerHTML = '';
-    const ta = document.createElement('textarea'); ta.rows = 5; ta.value = d.prompt;
-    const mo = document.createElement('input'); mo.value = motion.value || d.defaultMotion || '';
+    const lp = document.createElement('div'); lp.className = 'flabel'; lp.textContent = 'scene prompt — edit freely';
+    const ta = document.createElement('textarea'); ta.rows = 6; ta.value = d.prompt;
+    const lm = document.createElement('div'); lm.className = 'flabel'; lm.textContent = 'movement direction';
+    const mo = document.createElement('input'); mo.value = d.defaultMotion || '';
     const rr2 = document.createElement('div'); rr2.className = 'rrow';
     const gen = document.createElement('button'); gen.className = 'prod'; gen.textContent = 'generate 4 stills (~$0.25)';
     const back = document.createElement('button'); back.textContent = '← direction';
-    const st2 = document.createElement('span'); st2.className = 'rstatus'; st2.textContent = 'edit the prompt however you like';
+    const st2 = document.createElement('span'); st2.className = 'rstatus';
     rr2.append(gen, back, st2);
-    wrap.append(ta, mo, rr2);
+    wrap.append(lp, ta, lm, mo, rr2);
     ta.focus();
     back.onclick = () => renderImage();
     gen.onclick = async () => {
       gen.disabled = true; st2.textContent = 'starting…';
       const x = await fetch('/api/jokes/render', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: j.id, prompt: ta.value, motion: mo.value }) });
+        body: JSON.stringify({ id: j.id, prompt: ta.value, motion: mo.value, orientation: or.value }) });
       const dd = await x.json();
       if (!x.ok) { st2.textContent = dd.error || 'failed'; gen.disabled = false; return; }
       await refreshJokes(); renderStage(); ensurePolling();
@@ -690,7 +704,9 @@ function renderStillGate(pane, j) {
     img.onclick = () => { picked = i; grid.querySelectorAll('img').forEach(x => x.classList.remove('pick')); img.classList.add('pick'); };
     grid.appendChild(img);
   });
+  const lp = document.createElement('div'); lp.className = 'flabel'; lp.textContent = 'scene prompt — edit and reroll';
   const ta = document.createElement('textarea'); ta.rows = 5; ta.value = r.prompt || '';
+  const lm = document.createElement('div'); lm.className = 'flabel'; lm.textContent = 'movement direction';
   const mo = document.createElement('input'); mo.value = r.motion || ''; mo.placeholder = 'movement direction';
   const rr = document.createElement('div'); rr.className = 'rrow';
   const again = document.createElement('button'); again.textContent = '↻ 4 new (~$0.25)';
@@ -699,7 +715,7 @@ function renderStillGate(pane, j) {
   cancel.title = 'scrap these stills, back to direction';
   const st = document.createElement('span'); st.className = 'rstatus'; st.textContent = 'tap a still — or edit the prompt and reroll';
   rr.append(again, go, cancel, st);
-  wrap.append(grid, ta, mo, rr);
+  wrap.append(grid, lp, ta, lm, mo, rr);
   pane.appendChild(wrap);
   const post = body => fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, ...body }) });
   again.onclick = async () => {
