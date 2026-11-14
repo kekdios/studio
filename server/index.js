@@ -184,7 +184,8 @@ app.post('/api/turn', async (req, res) => {
     if (Buffer.isBuffer(req.body) && req.body.length) {
       // voice input: raw audio body
       const mime = req.headers['content-type'] || 'audio/webm';
-      const ext = { 'audio/mp4': 'mp4', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3',
+      const ext = { 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac',
+                    'audio/mpeg': 'mp3', 'audio/mp3': 'mp3',
                     'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav' }[mime.split(';')[0]] || 'webm';
       const filename = `user-${Date.now()}.${ext}`;
       fs.writeFileSync(path.join(AUDIO_DIR, filename), req.body);
