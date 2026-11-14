@@ -52,8 +52,8 @@ app.use((req, res, next) => {
   res.redirect('/login');
 });
 
-// public landing = the gallery; the room lives behind auth at /room
-app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'public', 'gallery.html')));
+// public landing = splash (logo + sample clips); full gallery at /clips; room behind auth at /room
+app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'public', 'landing.html')));
 app.get('/room', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 app.get('/login', (req, res) => res.sendFile(path.join(ROOT, 'public', 'login.html')));
 

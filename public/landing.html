@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0f">
+<title>ReelEnder — Jacob</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:#0a0a0f; color:#eee; font-family:-apple-system,system-ui,sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; }
+  .logo { width:120px; height:120px; border-radius:24px; margin-bottom:14px; }
+  h1 { font-size:1.4rem; font-weight:600; margin:0 0 4px; }
+  .tag { color:#777; font-size:.85rem; margin-bottom:34px; }
+  #samples { display:flex; gap:14px; margin-bottom:38px; }
+  .tile { position:relative; width:140px; aspect-ratio:9/16; background:#13131c; border:1px solid #23232f; border-radius:12px; overflow:hidden; cursor:pointer; padding:0; }
+  .tile img { width:100%; height:100%; object-fit:cover; display:block; }
+  .tile .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:1.8rem; color:#fff; background:linear-gradient(transparent 55%, rgba(0,0,0,.6)); text-shadow:0 2px 8px #000; }
+  a.signin { font-size:.9rem; color:#ccc; text-decoration:none; border:1px solid #3a3a4a; padding:10px 26px; border-radius:999px; }
+  a.signin:hover { color:#fff; border-color:#666; }
+  #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center; z-index:10; padding:16px; }
+  #lightbox.open { display:flex; }
+  #lbCard { width:100%; max-width:400px; max-height:100%; background:#13131c; border:1px solid #23232f; border-radius:16px; overflow:hidden; }
+  #lbCard video { width:100%; display:block; background:#000; }
+  #lbMeta { padding:14px 16px; }
+  #lbJoke { font-size:1rem; line-height:1.5; margin:0; }
+  #lbClose { position:absolute; top:14px; right:16px; background:none; border:none; color:#aaa; font-size:2rem; cursor:pointer; line-height:1; }
+  @media (max-width:360px) { .tile { width:120px; } }
+</style>
+</head>
+<body>
+<img class="logo" src="/reelenderlogosq.png" alt="ReelEnder">
+<h1>Jacob</h1>
+<div class="tag">a joke a day</div>
+<div id="samples"></div>
+<a class="signin" id="signin" href="/login">sign in</a>
+
+<div id="lightbox">
+  <button id="lbClose" aria-label="close">&times;</button>
+  <div id="lbCard">
+    <video id="lbVideo" controls playsinline></video>
+    <div id="lbMeta"><p id="lbJoke"></p></div>
+  </div>
+</div>
+<script>
+(async () => {
+const lb = document.getElementById('lightbox');
+const lbVideo = document.getElementById('lbVideo');
+// label the sign-in button honestly
+try {
+  const r = await fetch('/api/jokes');
+  if (r.ok) { const a = document.getElementById('signin'); a.textContent = 'joke room →'; a.href = '/room'; }
+} catch {}
+// the two newest clips serve as samples
+let clips = [];
+try { clips = await (await fetch('/api/clips')).json(); } catch {}
+const samples = clips.slice(-2);
+const wrap = document.getElementById('samples');
+function open(c) {
+  lbVideo.src = '/clips-media/' + c.file;
+  if (c.poster) lbVideo.poster = '/clips-media/' + c.poster;
+  document.getElementById('lbJoke').textContent = c.joke || '';
+  lb.classList.add('open');
+  lbVideo.play().catch(() => {});
+}
+function close() { lb.classList.remove('open'); lbVideo.pause(); lbVideo.removeAttribute('src'); lbVideo.load(); }
+for (const c of samples) {
+  const tile = document.createElement('button');
+  tile.className = 'tile';
+  tile.onclick = () => open(c);
+  if (c.poster) { const img = document.createElement('img'); img.src = '/clips-media/' + c.poster; img.alt=''; img.loading='lazy'; tile.appendChild(img); }
+  const p = document.createElement('div'); p.className='play'; p.textContent='▶'; tile.appendChild(p);
+  wrap.appendChild(tile);
+}
+document.getElementById('lbClose').onclick = close;
+lb.onclick = e => { if (e.target === lb) close(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+})();
+</script>
+</body>
+</html>
