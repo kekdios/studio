@@ -49,7 +49,8 @@
   .vsteps .s.done { color:#3ddc84; border-color:#2d7a4f; }
   .vsteps .s.now { color:#e8b84b; border-color:#5a4a1a; }
   .vsteps .ar { color:#444; }
-  .vscenes { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px; }
+  .vscenes { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:8px; }
+  @media (max-width:640px) { .vscenes { grid-template-columns:1fr 1fr; } }
   .vscenes img { width:100%; border-radius:8px; border:2px solid transparent; cursor:pointer; display:block; }
   .vscenes img.pick { border-color:#3ddc84; }
   .rform { width:100%; display:flex; flex-direction:column; gap:10px; }
@@ -761,7 +762,7 @@ function renderPromptEditor(pane, j, draft) {
   const lp = document.createElement('div'); lp.className = 'flabel'; lp.textContent = 'scene prompt — saved to this joke, edit freely';
   const ta = document.createElement('textarea'); ta.rows = 6; ta.value = draft.prompt || '';
   const lm = document.createElement('div'); lm.className = 'flabel'; lm.textContent = 'movement direction';
-  const mo = document.createElement('input'); mo.value = draft.motion || '';
+  const mo = document.createElement('textarea'); mo.rows = 3; mo.value = draft.motion || '';
   const rr = document.createElement('div'); rr.className = 'rrow';
   const gen = document.createElement('button'); gen.className = 'prod'; gen.textContent = 'generate 4 stills (~$0.25)';
   const save = document.createElement('button'); save.textContent = '💾 save edits';
@@ -807,7 +808,7 @@ function renderStillGate(pane, j, locked) {
   const lp = document.createElement('div'); lp.className = 'flabel'; lp.textContent = 'scene prompt — edit and reroll';
   const ta = document.createElement('textarea'); ta.rows = 5; ta.value = r.prompt || '';
   const lm = document.createElement('div'); lm.className = 'flabel'; lm.textContent = 'movement direction';
-  const mo = document.createElement('input'); mo.value = r.motion || ''; mo.placeholder = 'movement direction';
+  const mo = document.createElement('textarea'); mo.rows = 3; mo.value = r.motion || '';
   const rr = document.createElement('div'); rr.className = 'rrow';
   const again = document.createElement('button'); again.textContent = '↻ 4 new from this prompt (~$0.25)';
   const go = document.createElement('button'); go.textContent = '▶ make the video (~$0.75)';
