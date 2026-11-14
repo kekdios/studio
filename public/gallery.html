@@ -29,6 +29,11 @@
   .socials { display:flex; gap:8px; flex-wrap:wrap; }
   .socials a { font-size:.75rem; color:#aaa; text-decoration:none; border:1px solid #333; padding:5px 11px; border-radius:999px; }
   .socials a:hover { color:#fff; border-color:#666; }
+  .votes { display:flex; gap:10px; margin-top:12px; }
+  .votes button { flex:1; background:#1c1c26; border:1px solid #3a3a4a; color:#ccc; font-size:.85rem; padding:8px; border-radius:8px; cursor:pointer; }
+  .votes button:hover { border-color:#666; color:#fff; }
+  .votes button.mine.up { border-color:#2d7a4f; color:#3ddc84; background:#173a26; }
+  .votes button.mine.down { border-color:#7a2d2d; color:#e2483d; background:#3a1717; }
   #lbClose { position:absolute; top:14px; right:16px; background:none; border:none; color:#aaa; font-size:2rem; cursor:pointer; line-height:1; }
   .empty { grid-column:1/-1; text-align:center; color:#666; padding:60px 20px; }
   .note { text-align:center; font-size:.72rem; color:#666; padding:10px 20px 30px; }
@@ -51,6 +56,10 @@
       <p id="lbJoke"></p>
       <div id="lbDate"></div>
       <div class="socials" id="lbSocials"></div>
+      <div class="votes">
+        <button id="voteUp">👍 0</button>
+        <button id="voteDown">👎 0</button>
+      </div>
     </div>
   </div>
 </div>
@@ -66,11 +75,30 @@ try {
   if (r.ok) { roomLink.textContent = 'joke room →'; }
   else { roomLink.textContent = '← back'; roomLink.href = '/'; }
 } catch { roomLink.textContent = '← back'; roomLink.href = '/'; }
+const voteUp = document.getElementById('voteUp');
+const voteDown = document.getElementById('voteDown');
+let currentClip = null;
+function paintVotes(votes, myVote) {
+  voteUp.textContent = `👍 ${votes?.up || 0}`;
+  voteDown.textContent = `👎 ${votes?.down || 0}`;
+  voteUp.className = myVote === 'up' ? 'mine up' : '';
+  voteDown.className = myVote === 'down' ? 'mine down' : '';
+}
+async function castVote(vote) {
+  if (!currentClip) return;
+  const r = await fetch('/api/clips/vote', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:currentClip.id, vote}) });
+  const d = await r.json();
+  if (r.ok) { currentClip.votes = d.votes; currentClip.myVote = d.myVote; paintVotes(d.votes, d.myVote); }
+}
+voteUp.onclick = () => castVote('up');
+voteDown.onclick = () => castVote('down');
 let clips = [];
 try { clips = await (await fetch('/api/clips')).json(); } catch {}
 grid.innerHTML = '';
 if (!clips.length) grid.innerHTML = '<div class="empty">no clips yet — Jacob is still in makeup</div>';
 function open(c) {
+  currentClip = c;
+  paintVotes(c.votes, c.myVote);
   lbVideo.src = '/clips-media/' + c.file;
   if (c.poster) lbVideo.poster = '/clips-media/' + c.poster;
   document.getElementById('lbJoke').textContent = c.joke || '';

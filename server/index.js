@@ -42,7 +42,7 @@ function cookieToken(req) {
 app.use((req, res, next) => {
   const open = req.path === '/' || req.path === '/login' || req.path === '/api/login'
     || req.path === '/api/otp/request' || req.path === '/api/otp/verify'
-    || req.path === '/clips' || req.path === '/api/clips'
+    || req.path === '/clips' || req.path === '/api/clips' || req.path === '/api/clips/vote'
     || req.path === '/reelenderlogo.png' || req.path === '/reelenderlogosq.png'
     || req.path.startsWith('/clips-media/');
   if (open) return next();
@@ -53,7 +53,7 @@ app.use((req, res, next) => {
 });
 
 // public landing = splash (logo + sample clips); full gallery at /clips; room behind auth at /room
-app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'public', 'landing.html')));
+app.get('/', (req, res) => { trackVisit(req); res.sendFile(path.join(ROOT, 'public', 'landing.html')); });
 app.get('/room', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 app.get('/login', (req, res) => res.sendFile(path.join(ROOT, 'public', 'login.html')));
 
@@ -141,6 +141,10 @@ app.post('/api/otp/verify', (req, res) => {
   res.json({ ok: true });
 });
 // --- end OTP ---
+
+app.get('/api/stats', (req, res) => {
+  res.json({ visits: loadJson(VISITS_F), votes: loadJson(VOTES_F) });
+});
 
 app.post('/api/logout', (req, res) => {
   const token = cookieToken(req);
@@ -240,9 +244,54 @@ const CLIPS_DIR = path.join(JF_DIR, 'clips');
 const CLIPS_JSON = path.join(CLIPS_DIR, 'clips.json');
 fs.mkdirSync(CLIPS_DIR, { recursive: true });
 app.use('/clips-media', express.static(CLIPS_DIR));
-app.get('/clips', (req, res) => res.sendFile(path.join(ROOT, 'public', 'gallery.html')));
+
+// --- public stats: votes + visits, keyed by hashed IP (raw IPs never stored) ---
+const VOTES_F = path.join(JF_DIR, 'votes.json');
+const VISITS_F = path.join(JF_DIR, 'visits.json');
+const loadJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } };
+const saveJson = (f, o) => fs.writeFileSync(f, JSON.stringify(o));
+const ipHash = ip => crypto.createHash('sha256').update('reelender-salt:' + (ip || '?')).digest('hex').slice(0, 16);
+const trackVisit = req => {
+  const v = loadJson(VISITS_F);
+  const h = ipHash(req.ip);
+  const e = v[h] || { count: 0, first: new Date().toISOString() };
+  e.count++; e.last = new Date().toISOString();
+  v[h] = e;
+  saveJson(VISITS_F, v);
+};
+const clipVotes = id => {
+  const mine = loadJson(VOTES_F)[id] || {};
+  return { up: Object.values(mine).filter(v => v === 'up').length,
+           down: Object.values(mine).filter(v => v === 'down').length };
+};
+
+app.get('/clips', (req, res) => { trackVisit(req); res.sendFile(path.join(ROOT, 'public', 'gallery.html')); });
 app.get('/api/clips', (req, res) => {
-  try { res.json(JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'))); } catch { res.json([]); }
+  try {
+    const h = ipHash(req.ip);
+    const allVotes = loadJson(VOTES_F);
+    const clips = JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'));
+    for (const c of clips) { c.votes = clipVotes(c.id); c.myVote = allVotes[c.id]?.[h] || null; }
+    res.json(clips);
+  } catch { res.json([]); }
+});
+app.post('/api/clips/vote', (req, res) => {
+  const { id, vote } = req.body || {};
+  if (!id || !['up', 'down'].includes(vote)) return res.status(400).json({ error: 'id + vote(up|down) required' });
+  try {
+    const clips = JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'));
+    if (!clips.some(c => c.id === id)) return res.status(404).json({ error: 'unknown clip' });
+  } catch { return res.status(500).json({ error: 'clips unavailable' }); }
+  const h = ipHash(req.ip);
+  const all = loadJson(VOTES_F);
+  const mine = all[id] || {};
+  const prev = mine[h];
+  let result;
+  if (prev === vote) { delete mine[h]; result = 'removed'; }
+  else { mine[h] = vote; result = prev ? 'changed' : 'voted'; }
+  all[id] = mine;
+  saveJson(VOTES_F, all);
+  res.json({ ok: true, result, votes: clipVotes(id), myVote: mine[h] || null });
 });
 
 const readJsonl = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } };
