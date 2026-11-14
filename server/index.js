@@ -55,6 +55,7 @@ app.use((req, res, next) => {
 // public landing = splash (logo + sample clips); full gallery at /clips; room behind auth at /room
 app.get('/', (req, res) => { trackVisit(req); res.sendFile(path.join(ROOT, 'public', 'landing.html')); });
 app.get('/room', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
+app.get('/stats', (req, res) => res.sendFile(path.join(ROOT, 'public', 'stats.html')));
 app.get('/login', (req, res) => res.sendFile(path.join(ROOT, 'public', 'login.html')));
 
 app.post('/api/login', (req, res) => {

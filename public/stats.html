@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0f">
+<title>ReelEnder — Stats</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:#0a0a0f; color:#eee; font-family:-apple-system,system-ui,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid #1c1c26; flex-wrap:wrap; }
+  header img { height:34px; border-radius:8px; }
+  header h1 { font-size:1rem; font-weight:600; margin:0; }
+  header a.room { margin-left:auto; font-size:.8rem; color:#aaa; text-decoration:none; border:1px solid #333; padding:6px 12px; border-radius:999px; }
+  header a.room:hover { color:#fff; border-color:#666; }
+  #wrap { max-width:640px; margin:0 auto; padding:20px 14px 60px; }
+  .cards { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:22px; }
+  .card { flex:1; min-width:100px; background:#13131c; border:1px solid #23232f; border-radius:12px; padding:14px; text-align:center; }
+  .card .n { font-size:1.6rem; font-weight:700; }
+  .card .l { font-size:.68rem; color:#777; text-transform:uppercase; letter-spacing:.06em; margin-top:4px; }
+  h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.08em; color:#777; margin:22px 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:.8rem; }
+  th { text-align:left; color:#666; font-weight:500; font-size:.7rem; padding:6px 8px; border-bottom:1px solid #23232f; }
+  td { padding:8px; border-bottom:1px solid #1a1a24; color:#ccc; }
+  td.hash { font-family:ui-monospace,monospace; color:#888; font-size:.72rem; }
+  .vrow { display:flex; align-items:center; gap:10px; background:#13131c; border:1px solid #23232f; border-radius:10px; padding:10px 12px; margin-bottom:8px; font-size:.85rem; }
+  .vrow .title { flex:1; }
+  .vrow .up { color:#3ddc84; }
+  .vrow .down { color:#e2483d; }
+  .empty { color:#555; font-size:.85rem; padding:20px 0; }
+</style>
+</head>
+<body>
+<header>
+  <img src="/reelenderlogosq.png" alt="">
+  <h1>Site stats</h1>
+  <a class="room" href="/room">← joke room</a>
+</header>
+<div id="wrap">
+  <div class="cards">
+    <div class="card"><div class="n" id="cVisitors">–</div><div class="l">unique visitors</div></div>
+    <div class="card"><div class="n" id="cVisits">–</div><div class="l">total visits</div></div>
+    <div class="card"><div class="n" id="cVotes">–</div><div class="l">votes cast</div></div>
+  </div>
+  <h2>clip votes</h2>
+  <div id="clipRows"></div>
+  <h2>visitors</h2>
+  <table>
+    <thead><tr><th>visitor</th><th>visits</th><th>first seen</th><th>last seen</th></tr></thead>
+    <tbody id="visitorRows"></tbody>
+  </table>
+</div>
+<script>
+(async () => {
+const fmt = iso => iso ? new Date(iso).toLocaleDateString(undefined, { month:'short', day:'numeric' }) + ' ' + new Date(iso).toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' }) : '—';
+let stats, clips;
+try { stats = await (await fetch('/api/stats')).json(); } catch { stats = null; }
+try { clips = await (await fetch('/api/clips')).json(); } catch { clips = []; }
+if (!stats) { document.getElementById('wrap').innerHTML = '<div class="empty">sign in to see stats</div>'; return; }
+
+const visits = stats.visits || {};
+const votes = stats.votes || {};
+const ids = Object.keys(visits);
+document.getElementById('cVisitors').textContent = ids.length;
+document.getElementById('cVisits').textContent = ids.reduce((s,k) => s + (visits[k].count || 0), 0);
+document.getElementById('cVotes').textContent = Object.values(votes).reduce((s,clip) => s + Object.keys(clip).length, 0);
+
+const clipRows = document.getElementById('clipRows');
+const voteable = clips.map(c => {
+  const mine = votes[c.id] || {};
+  return { title: c.title || c.id, up: Object.values(mine).filter(v=>v==='up').length, down: Object.values(mine).filter(v=>v==='down').length };
+});
+clipRows.innerHTML = voteable.length ? '' : '<div class="empty">no clips yet</div>';
+for (const v of voteable) {
+  const r = document.createElement('div');
+  r.className = 'vrow';
+  r.innerHTML = `<span class="title">${v.title}</span><span class="up">👍 ${v.up}</span><span class="down">👎 ${v.down}</span>`;
+  clipRows.appendChild(r);
+}
+
+const tbody = document.getElementById('visitorRows');
+const rows = ids.map(h => ({ h, ...visits[h] })).sort((a,b) => (b.last||'').localeCompare(a.last||''));
+for (const v of rows) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="hash">#${v.h.slice(0,8)}</td><td>${v.count}</td><td>${fmt(v.first)}</td><td>${fmt(v.last)}</td>`;
+  tbody.appendChild(tr);
+}
+if (!rows.length) tbody.innerHTML = '<tr><td colspan="4" class="empty">no visits logged yet</td></tr>';
+})();
+</script>
+</body>
+</html>
