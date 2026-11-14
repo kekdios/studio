@@ -43,7 +43,8 @@
       "Exec($RSH)",
       "Exec(break)",
       "Exec(grep)",
-      "Exec(md5)"
+      "Exec(md5)",
+      "Exec(time curl)"
     ]
   }
 }
