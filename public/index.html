@@ -642,6 +642,21 @@ function tickLine(host, j) {
   liveTick = setInterval(upd, 1000);
 }
 const renderDur = r => r?.renderStarted && r?.renderDone ? fmtDur(Date.parse(r.renderDone) - Date.parse(r.renderStarted)) : null;
+// ticking clock for an in-flight request — escalates to a hint if it drags
+function requestTick(host) {
+  const el = document.createElement('div');
+  el.className = 'phint'; el.style.fontSize = '.8rem';
+  const t0 = Date.now();
+  const upd = () => {
+    const ms = Date.now() - t0;
+    el.textContent = `elapsed ${fmtDur(ms)}` + (ms > 30000 ? ' — unusually long: if it doesn\'t move soon, refresh and try again' : '');
+  };
+  upd(); host.appendChild(el);
+  const h = setInterval(upd, 1000);
+  return () => clearInterval(h);
+}
+// iOS suspends fetches + timers when the page hides — resync on return
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshJokes().then(renderStage); });
 function jokeCard(j, tag) {
   const d = document.createElement('div'); d.className = 'pjoke';
   const t = document.createElement('div'); t.className = 'ptag'; t.textContent = tag || 'in production';
@@ -729,8 +744,10 @@ function renderDirectionForm(pane, j, draft) {
   pane.appendChild(wrap);
   next.onclick = async () => {
     next.disabled = true; st.replaceChildren(workingEl('AI is drafting the scene…'));
+    const stopT = requestTick(st);
     const d = await (await fetch('/api/jokes/render-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: j.id, setting: setting.value, orientation: or.value }) })).json();
+    stopT();
     wrap.remove();
     j.draft = { prompt: d.prompt, motion: d.defaultMotion, orientation: or.value === 'horizontal' ? '16:9' : '9:16' };
     renderPromptEditor(pane, j, j.draft);
@@ -817,13 +834,17 @@ function renderStillGate(pane, j, locked) {
   if (locked) { lock(true); busy('generating new stills — controls locked'); tickLine(st, j); return; }
   again.onclick = async () => {
     lock(true); busy('generating 4 new stills from your prompt…');
+    const stop = requestTick(st);
     const d = await post({ action: 'new-stills', prompt: ta.value, motion: mo.value });
+    stop();
     if (d.error) { note(d.error, true); lock(false); } else { await refreshJokes(); ensurePolling(); }
   };
   go.onclick = async () => {
     if (picked < 0) { note('pick a still first'); return; }
-    lock(true); busy('sending to the avatar renderer…');
+    lock(true); busy('sending image to video agent…');
+    const stop = requestTick(st);
     const d = await post({ action: 'approve-scene', pick, motion: mo.value });
+    stop();
     if (d.error) { note(d.error, true); lock(false); return; }
     await refreshJokes(); setStage('video'); ensurePolling();
   };
@@ -859,7 +880,7 @@ function renderVideo() {
   } else {
     videoPane.appendChild(jokeCard(j));
     if (r.status === 'running') {
-      videoPane.appendChild(workingEl(r.step === 'publish' ? 'publishing to the gallery…' : 'rendering the take'));
+      videoPane.appendChild(workingEl(r.step === 'publish' ? 'publishing to the gallery…' : 'video agent is generating your video'));
       tickLine(videoPane, j);
     }
     if (['error', 'interrupted'].includes(r.status) && r.step === 'render') {
