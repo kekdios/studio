@@ -44,9 +44,11 @@
   </div>
   <h2>clip votes</h2>
   <div id="clipRows"></div>
+  <h2>by country</h2>
+  <div id="countryRows"></div>
   <h2>visitors</h2>
   <table>
-    <thead><tr><th>visitor</th><th>visits</th><th>first seen</th><th>last seen</th></tr></thead>
+    <thead><tr><th>visitor</th><th>location</th><th>visits</th><th>last seen</th></tr></thead>
     <tbody id="visitorRows"></tbody>
   </table>
 </div>
@@ -78,11 +80,30 @@ for (const v of voteable) {
   clipRows.appendChild(r);
 }
 
+const byCountry = {};
+for (const h of ids) {
+  const v = visits[h];
+  const k = v.country || 'Unknown';
+  const c = byCountry[k] || { visitors: 0, visits: 0 };
+  c.visitors++; c.visits += v.count || 0;
+  byCountry[k] = c;
+}
+const cRows = document.getElementById('countryRows');
+const cSorted = Object.entries(byCountry).sort((a,b) => b[1].visits - a[1].visits);
+cRows.innerHTML = cSorted.length ? '' : '<div class="empty">no visits logged yet</div>';
+for (const [country, c] of cSorted) {
+  const r = document.createElement('div');
+  r.className = 'vrow';
+  r.innerHTML = `<span class="title">${country}</span><span>${c.visitors} visitor${c.visitors===1?'':'s'}</span><span>${c.visits} visit${c.visits===1?'':'s'}</span>`;
+  cRows.appendChild(r);
+}
+
 const tbody = document.getElementById('visitorRows');
 const rows = ids.map(h => ({ h, ...visits[h] })).sort((a,b) => (b.last||'').localeCompare(a.last||''));
 for (const v of rows) {
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td class="hash">#${v.h.slice(0,8)}</td><td>${v.count}</td><td>${fmt(v.first)}</td><td>${fmt(v.last)}</td>`;
+  const loc = [v.city, v.country].filter(Boolean).join(', ') || '—';
+  tr.innerHTML = `<td class="hash">#${v.h.slice(0,8)}</td><td>${loc}</td><td>${v.count}</td><td>${fmt(v.last)}</td>`;
   tbody.appendChild(tr);
 }
 if (!rows.length) tbody.innerHTML = '<tr><td colspan="4" class="empty">no visits logged yet</td></tr>';

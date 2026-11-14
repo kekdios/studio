@@ -273,6 +273,20 @@ const trackVisit = req => {
   e.count++; e.last = new Date().toISOString();
   v[h] = e;
   saveJson(VISITS_F, v);
+  // one-time geo lookup per new visitor — raw IP used in memory only, never stored
+  if (!e.geoTried) {
+    e.geoTried = true;
+    saveJson(VISITS_F, v);
+    fetch(`http://ip-api.com/json/${encodeURIComponent(req.ip)}?fields=status,country,countryCode,city`)
+      .then(r => r.json())
+      .then(g => {
+        const vv = loadJson(VISITS_F);
+        if (vv[h] && g.status === 'success') {
+          vv[h].country = g.country; vv[h].countryCode = g.countryCode; vv[h].city = g.city;
+          saveJson(VISITS_F, vv);
+        }
+      }).catch(() => {});
+  }
 };
 const clipVotes = id => {
   const mine = loadJson(VOTES_F)[id] || {};
