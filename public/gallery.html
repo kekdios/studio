@@ -30,9 +30,11 @@
 </header>
 <div id="feed"><div class="empty">loading…</div></div>
 <script>
+(async () => {
 const feed = document.getElementById('feed');
 const socialLabel = { tiktok:'TikTok', instagram:'Instagram', youtube:'YouTube', x:'X' };
-const clips = await (await fetch('/api/clips')).json();
+let clips = [];
+try { clips = await (await fetch('/api/clips')).json(); } catch {}
 feed.innerHTML = '';
 if (!clips.length) feed.innerHTML = '<div class="empty">no clips yet — Jacob is still in makeup</div>';
 for (const c of clips) {
@@ -58,6 +60,7 @@ for (const c of clips) {
   card.appendChild(meta);
   feed.appendChild(card);
 }
+})();
 </script>
 </body>
 </html>
