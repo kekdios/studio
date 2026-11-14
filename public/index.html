@@ -18,6 +18,8 @@
   #galleryLink:hover { color:#fff; border-color:#555; }
   #newSession { margin-left:10px; background:#1c1c26; border:1px solid #333; color:#aaa; font-size:.72rem; padding:4px 10px; border-radius:6px; cursor:pointer; }
   #newSession:hover { color:#fff; border-color:#555; }
+  #logout { background:none; border:1px solid #333; color:#aaa; font-size:.72rem; padding:4px 10px; border-radius:6px; cursor:pointer; }
+  #logout:hover { color:#fff; border-color:#555; }
 
   #transcript { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:760px; width:100%; margin:0 auto; }
   .turn { max-width:85%; padding:10px 14px; border-radius:14px; line-height:1.45; font-size:.95rem; white-space:pre-wrap; }
@@ -76,6 +78,7 @@
   <span id="balance"></span>
   <a href="/clips" id="galleryLink" target="_blank">gallery ↗</a>
   <button id="newSession">new session</button>
+  <button id="logout">log out</button>
 </header>
 
 <div id="transcript"></div>
@@ -291,6 +294,11 @@ document.getElementById('newSession').onclick = async () => {
   await fetch('/api/session/new', { method: 'POST' });
   transcriptEl.innerHTML = '';
   setStatus('clean page — talk to the scout');
+};
+
+document.getElementById('logout').onclick = async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  location.href = '/';
 };
 
 loadTranscript();
