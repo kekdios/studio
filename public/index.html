@@ -112,6 +112,7 @@
   <div id="vaultCard">
     <div id="vaultHead">
       <button class="tab on" data-t="accepted">kept <span class="n" id="nKept"></span></button>
+      <button class="tab" data-t="produced">produced <span class="n" id="nProd"></span></button>
       <button class="tab" data-t="rejected">tossed <span class="n" id="nTossed"></span></button>
       <button id="vaultAdd" style="margin-left:6px; background:none; border:1px solid #333; color:#aaa; font-size:.78rem; padding:5px 12px; border-radius:999px; cursor:pointer;">＋ add</button>
       <button id="vaultClose">&times;</button>
@@ -364,12 +365,15 @@ async function loadVault() {
   const d = await (await fetch('/api/jokes')).json();
   vaultData = d;
   document.getElementById('nKept').textContent = `(${d.accepted.length})`;
+  document.getElementById('nProd').textContent = `(${d.accepted.filter(j => j.produced).length})`;
   document.getElementById('nTossed').textContent = `(${d.rejected.length})`;
   renderVault();
 }
 
 function renderVault() {
-  const list = vaultData[vaultTab] || [];
+  const list = vaultTab === 'produced'
+    ? (vaultData.accepted || []).filter(j => j.produced)
+    : (vaultData[vaultTab] || []);
   vaultList.innerHTML = '';
   if (!list.length) { vaultList.innerHTML = '<div class="vempty">nothing here yet</div>'; return; }
   for (const j of [...list].reverse()) {
@@ -393,7 +397,7 @@ function renderVault() {
       if (d.audioUrl) new Audio(d.audioUrl).play().catch(() => {});
     });
     const move = async to => { await fetch('/api/jokes/move', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, to}) }); loadVault(); loadCounts(); };
-    if (vaultTab === 'accepted') {
+    if (vaultTab === 'accepted' || vaultTab === 'produced') {
       mk(j.produced ? 'unmark produced' : '✓ produced', 'prod', async () => {
         await fetch('/api/jokes/produce', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, produced:!j.produced}) });
         loadVault();
