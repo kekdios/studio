@@ -14,8 +14,11 @@
   .tile { position:relative; width:140px; aspect-ratio:9/16; background:#13131c; border:1px solid #23232f; border-radius:12px; overflow:hidden; cursor:pointer; padding:0; }
   .tile img { width:100%; height:100%; object-fit:cover; display:block; }
   .tile .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:1.8rem; color:#fff; background:linear-gradient(transparent 55%, rgba(0,0,0,.6)); text-shadow:0 2px 8px #000; }
-  a.signin { font-size:.9rem; color:#ccc; text-decoration:none; border:1px solid #3a3a4a; padding:10px 26px; border-radius:999px; }
-  a.signin:hover { color:#fff; border-color:#666; }
+  a.more { font-size:.95rem; font-weight:600; color:#fff; text-decoration:none; background:linear-gradient(135deg,#ff7a18,#e2483d); padding:12px 28px; border-radius:999px; }
+  a.more:hover { filter:brightness(1.15); }
+  footer { margin-top:auto; padding-top:30px; font-size:.7rem; color:#555; }
+  footer a { color:#777; text-decoration:none; }
+  footer a:hover { color:#ccc; }
   #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center; z-index:10; padding:16px; }
   #lightbox.open { display:flex; }
   #lbCard { width:100%; max-width:400px; max-height:100%; background:#13131c; border:1px solid #23232f; border-radius:16px; overflow:hidden; }
@@ -30,7 +33,8 @@
 <h1>Jacob</h1>
 <div class="tag">Traveling Joker</div>
 <div id="samples"></div>
-<a class="signin" id="signin" href="/login">sign in</a>
+<a class="more" href="/clips">see more jokes →</a>
+<footer><a href="/login" id="footLink">sign in</a> · v0.1.0 · © 2026 ReelEnder</footer>
 
 <div id="lightbox">
   <button id="lbClose" aria-label="close">&times;</button>
@@ -43,10 +47,10 @@
 (async () => {
 const lb = document.getElementById('lightbox');
 const lbVideo = document.getElementById('lbVideo');
-// label the sign-in button honestly
+// footer link: your door when signed in, plain sign-in otherwise
 try {
   const r = await fetch('/api/jokes');
-  if (r.ok) { const a = document.getElementById('signin'); a.textContent = 'joke room →'; a.href = '/room'; }
+  if (r.ok) { const a = document.getElementById('footLink'); a.textContent = 'joke room'; a.href = '/room'; }
 } catch {}
 // the two newest clips serve as samples
 let clips = [];

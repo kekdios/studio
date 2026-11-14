@@ -62,8 +62,8 @@ const roomLink = document.querySelector('a.room');
 try {
   const r = await fetch('/api/jokes');
   if (r.ok) { roomLink.textContent = 'joke room →'; }
-  else { roomLink.textContent = 'sign in →'; roomLink.href = '/login'; }
-} catch { roomLink.textContent = 'sign in →'; roomLink.href = '/login'; }
+  else { roomLink.textContent = '← back'; roomLink.href = '/'; }
+} catch { roomLink.textContent = '← back'; roomLink.href = '/'; }
 let clips = [];
 try { clips = await (await fetch('/api/clips')).json(); } catch {}
 grid.innerHTML = '';
