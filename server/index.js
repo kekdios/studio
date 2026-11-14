@@ -281,6 +281,18 @@ app.post('/api/jokes/fetch', async (req, res) => {
   }
 });
 
+app.post('/api/jokes/edit', (req, res) => {
+  const { id, text } = req.body || {};
+  if (!id || typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'id and text required' });
+  const pending = loadPending();
+  const i = pending.findIndex(j => j.id === id);
+  if (i === -1) return res.status(404).json({ error: 'joke not pending' });
+  pending[i].text = text.trim();
+  delete pending[i].audio; // cached audio no longer matches the edited text
+  savePending(pending);
+  res.json({ ok: true, joke: pending[i] });
+});
+
 app.post('/api/jokes/decide', (req, res) => {
   const { id, decision } = req.body || {};
   const pending = loadPending();
