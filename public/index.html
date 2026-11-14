@@ -43,10 +43,21 @@
   .vrow .vrender { font-size:.72rem; color:#e8b84b; margin-bottom:8px; }
   .vrow .vrender.err { color:#e2483d; }
   .vrow .vrender.ok { color:#3ddc84; }
+  .vrow.hot { border-color:#5a4a1a; }
+  .vsteps { display:flex; gap:4px; align-items:center; font-size:.68rem; color:#666; margin-bottom:8px; flex-wrap:wrap; }
+  .vsteps .s { padding:2px 8px; border-radius:999px; border:1px solid #2a2a3a; }
+  .vsteps .s.done { color:#3ddc84; border-color:#2d7a4f; }
+  .vsteps .s.now { color:#e8b84b; border-color:#5a4a1a; }
+  .vsteps .ar { color:#444; }
+  .vscenes { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px; }
+  .vscenes img { width:100%; border-radius:8px; border:2px solid transparent; cursor:pointer; display:block; }
+  .vscenes img.pick { border-color:#3ddc84; }
   .vrow .rform { width:100%; display:flex; flex-direction:column; gap:6px; }
-  .vrow .rform input { background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:6px 10px; font:inherit; font-size:.8rem; }
-  .vrow .rform .rrow { display:flex; gap:6px; align-items:center; }
+  .vrow .rform input, .vrow .rform select { background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:6px 10px; font:inherit; font-size:.8rem; }
+  .vrow .rform textarea { font-size:.75rem; }
+  .vrow .rform .rrow { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
   .vrow .rform .rstatus { font-size:.72rem; color:#888; }
+  .vrow .watch { font-size:.78rem; color:#e8b84b; text-decoration:none; border:1px solid #5a4a1a; padding:4px 10px; border-radius:6px; display:inline-block; margin-bottom:8px; }
   .vrow textarea { width:100%; background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:8px 10px; font:inherit; font-size:.9rem; margin-bottom:8px; resize:vertical; }
   .vempty { text-align:center; color:#555; padding:40px 10px; font-size:.85rem; }
 
@@ -376,6 +387,102 @@ async function loadVault() {
   document.getElementById('nProd').textContent = `(${d.accepted.filter(j => j.produced).length})`;
   document.getElementById('nTossed').textContent = `(${d.rejected.length})`;
   renderVault();
+  for (const j of d.accepted) if (j.render && RENDER_ACTIVE.has(j.render.status)) pollRender(j); // resume tracking
+}
+
+const RENDER_ACTIVE = new Set(['running', 'awaiting_scene', 'awaiting_publish']);
+
+// pipeline tracker: voice → stills → clip → live (idx = the chip that's active)
+function stageBar(j) {
+  const r = j.render;
+  let idx = -1;
+  if (j.produced || (r && r.status === 'done')) idx = 4;
+  else if (r) {
+    if (r.status === 'awaiting_publish' || (r.status === 'running' && r.step === 'publish')) idx = 3;
+    else if (r.status === 'running' && r.step === 'render') idx = 2;
+    else if (r.status === 'awaiting_scene' || (r.status === 'running' && r.step === 'stills')) idx = 1;
+    else if (r.status === 'running') idx = 0;
+  }
+  if (idx === -1) return null;
+  const el = document.createElement('div'); el.className = 'vsteps';
+  ['voice','stills','clip','live'].forEach((n, i) => {
+    const s = document.createElement('span');
+    s.className = 's' + (idx === 4 || i < idx ? ' done' : i === idx ? ' now' : '');
+    s.textContent = n;
+    el.appendChild(s);
+    if (i < 3) { const a = document.createElement('span'); a.className = 'ar'; a.textContent = '→'; el.appendChild(a); }
+  });
+  return el;
+}
+
+// what each gate shows while the workflow waits on the director
+function gatePanel(j) {
+  const r = j.render;
+  const wrap = document.createElement('div');
+  const post = body => fetch('/api/jokes/render-action', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ jokeId:j.id, ...body }) });
+
+  if (r.status === 'running') {
+    wrap.className = 'vrender';
+    wrap.textContent = `⏳ ${r.step}… (renders take a few minutes)`;
+    return wrap;
+  }
+  if (r.status === 'awaiting_scene') {
+    wrap.className = 'rform';
+    const grid = document.createElement('div'); grid.className = 'vscenes';
+    let picked = r.pick ?? -1;
+    (r.scenes || []).forEach((u, i) => {
+      const img = document.createElement('img');
+      img.src = u; img.loading = 'lazy'; img.alt = `still ${i+1}`;
+      if (i === picked) img.classList.add('pick');
+      img.onclick = () => { picked = i; grid.querySelectorAll('img').forEach(x => x.classList.remove('pick')); img.classList.add('pick'); };
+      grid.appendChild(img);
+    });
+    const ta = document.createElement('textarea'); ta.rows = 5; ta.value = r.prompt || '';
+    const mo = document.createElement('input'); mo.value = r.motion || ''; mo.placeholder = 'movement direction';
+    const rr = document.createElement('div'); rr.className = 'rrow';
+    const again = document.createElement('button'); again.textContent = '↻ 4 new (~$0.25)';
+    const go = document.createElement('button'); go.className = 'prod'; go.textContent = 'render picked (~$0.75)';
+    const cancel = document.createElement('button'); cancel.textContent = 'cancel';
+    const st = document.createElement('span'); st.className = 'rstatus'; st.textContent = 'tap a still — or edit the prompt and reroll';
+    rr.append(again, go, cancel, st);
+    wrap.append(grid, ta, mo, rr);
+    again.onclick = async () => {
+      again.disabled = true; st.textContent = 'generating…';
+      const x = await post({ action:'new-stills', prompt:ta.value, motion:mo.value });
+      const d = await x.json();
+      if (!x.ok) { st.textContent = d.error || 'failed'; again.disabled = false; } else pollRender(j);
+    };
+    go.onclick = async () => {
+      if (picked < 0) { st.textContent = 'pick a still first'; return; }
+      st.textContent = 'rendering…';
+      const x = await post({ action:'approve-scene', pick, motion:mo.value });
+      const d = await x.json();
+      if (!x.ok) st.textContent = d.error || 'failed'; else pollRender(j);
+    };
+    cancel.onclick = async () => {
+      if (!confirm('cancel this render?')) return;
+      await post({ action:'cancel' }); loadVault();
+    };
+    return wrap;
+  }
+  if (r.status === 'awaiting_publish') {
+    const a = document.createElement('a');
+    a.className = 'watch'; a.href = r.clipPreview; a.target = '_blank'; a.textContent = '▶ watch the take';
+    const br = document.createElement('div'); br.className = 'rrow'; br.style.marginBottom = '8px';
+    const pub = document.createElement('button'); pub.className = 'prod'; pub.textContent = 'publish to gallery';
+    const bin = document.createElement('button'); bin.className = 'del'; bin.textContent = 'bin it';
+    br.append(pub, bin);
+    wrap.append(a, br);
+    pub.onclick = async () => { pub.disabled = true; await post({ action:'publish' }); pollRender(j); };
+    bin.onclick = async () => { if (confirm('bin this take? it stays off the gallery')) { await post({ action:'reject' }); loadVault(); } };
+    return wrap;
+  }
+  wrap.className = 'vrender';
+  if (r.status === 'done') { wrap.classList.add('ok'); wrap.innerHTML = `✓ live — <a href="/clips" target="_blank" style="color:#3ddc84;">gallery ↗</a>`; }
+  else if (r.status === 'rejected') wrap.textContent = 'binned — start again whenever';
+  else if (r.status === 'cancelled') wrap.textContent = 'cancelled';
+  else { wrap.classList.add('err'); wrap.textContent = `✗ render ${r.status}: ${r.error || ''}`; }
+  return wrap;
 }
 
 function renderVault() {
@@ -384,9 +491,13 @@ function renderVault() {
     : (vaultData[vaultTab] || []);
   vaultList.innerHTML = '';
   if (!list.length) { vaultList.innerHTML = '<div class="vempty">nothing here yet</div>'; return; }
-  for (const j of [...list].reverse()) {
+  const items = [...list].reverse();
+  if (vaultTab === 'accepted') items.sort((a, b) =>
+    ((b.render && RENDER_ACTIVE.has(b.render.status)) ? 1 : 0) - ((a.render && RENDER_ACTIVE.has(a.render.status)) ? 1 : 0));
+  for (const j of items) {
     const row = document.createElement('div');
-    row.className = 'vrow' + (j.produced ? ' produced' : '');
+    const active = j.render && RENDER_ACTIVE.has(j.render.status);
+    row.className = 'vrow' + (j.produced ? ' produced' : '') + (active ? ' hot' : '');
     if (j.produced) {
       const f = document.createElement('div'); f.className = 'vflag'; f.textContent = '✓ produced';
       row.appendChild(f);
@@ -405,16 +516,11 @@ function renderVault() {
       if (d.audioUrl) new Audio(d.audioUrl).play().catch(() => {});
     });
     const move = async to => { await fetch('/api/jokes/move', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, to}) }); loadVault(); loadCounts(); };
-    if (j.render && j.render.status !== 'none') {
-      const r = document.createElement('div');
-      r.className = 'vrender';
-      if (j.render.status === 'running') r.textContent = `⏳ ${j.render.step}… (renders take a few minutes)`;
-      else if (j.render.status === 'done') { r.classList.add('ok'); r.innerHTML = `✓ clip made — <a href="/clips" target="_blank" style="color:#3ddc84;">gallery ↗</a>`; }
-      else { r.classList.add('err'); r.textContent = `✗ render ${j.render.status}: ${j.render.error || ''}`; }
-      row.insertBefore(r, btns);
-    }
+    const bar = vaultTab !== 'rejected' && stageBar(j);
+    if (bar) row.appendChild(bar);
+    if (j.render && j.render.status !== 'none') row.appendChild(gatePanel(j));
     if (vaultTab === 'accepted' || vaultTab === 'produced') {
-      if (!j.render || j.render.status !== 'running')
+      if (!j.render || !RENDER_ACTIVE.has(j.render.status))
         mk('🎬 clip', '', () => startRenderForm(row, j));
       mk(j.produced ? 'unmark produced' : '✓ produced', 'prod', async () => {
         await fetch('/api/jokes/produce', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, produced:!j.produced}) });
@@ -435,45 +541,69 @@ function renderVault() {
   }
 }
 
+// stage 0: direction -> preview prompt -> generate 4 stills
 function startRenderForm(row, j) {
   const btns = row.querySelector('.vbtns');
   btns.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'rform';
   const setting = document.createElement('input');
-  setting.placeholder = 'setting — e.g. a rainy bus stop at night (blank = car park)';
+  setting.placeholder = 'setting — blank = car park at night';
+  const fr = document.createElement('select');
+  fr.innerHTML = '<option value="full">full body (shoes in frame)</option><option value="waist">waist-up</option>';
   const motion = document.createElement('input');
-  motion.placeholder = 'movement — e.g. points off to the side (blank = default)';
-  const rrow = document.createElement('div');
-  rrow.className = 'rrow';
-  const go = document.createElement('button'); go.textContent = 'render (~$0.80)'; go.className = 'prod';
+  motion.placeholder = 'movement — blank = default';
+  const rr = document.createElement('div'); rr.className = 'rrow';
+  const next = document.createElement('button'); next.className = 'prod'; next.textContent = 'see prompt →';
   const cancel = document.createElement('button'); cancel.textContent = 'cancel';
   const st = document.createElement('span'); st.className = 'rstatus';
-  rrow.append(go, cancel, st);
-  wrap.append(setting, motion, rrow);
+  rr.append(next, cancel, st);
+  wrap.append(setting, fr, motion, rr);
   btns.appendChild(wrap);
   setting.focus();
   cancel.onclick = () => renderVault();
-  go.onclick = async () => {
-    go.disabled = true; st.textContent = 'starting…';
-    const r = await fetch('/api/jokes/render', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ id: j.id, setting: setting.value, motion: motion.value }) });
-    const d = await r.json();
-    if (!r.ok) { st.textContent = d.error || 'failed'; go.disabled = false; return; }
-    pollRender(j);
+  next.onclick = async () => {
+    next.disabled = true; st.textContent = 'writing prompt…';
+    const d = await (await fetch('/api/jokes/render-preview', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ setting: setting.value, framing: fr.value }) })).json();
+    wrap.innerHTML = '';
+    const ta = document.createElement('textarea'); ta.rows = 5; ta.value = d.prompt;
+    const mo = document.createElement('input'); mo.value = motion.value || d.defaultMotion || '';
+    const rr2 = document.createElement('div'); rr2.className = 'rrow';
+    const gen = document.createElement('button'); gen.className = 'prod'; gen.textContent = 'generate 4 stills (~$0.25)';
+    const back = document.createElement('button'); back.textContent = '← back';
+    const st2 = document.createElement('span'); st2.className = 'rstatus';
+    rr2.append(gen, back, st2);
+    wrap.append(ta, mo, rr2);
+    ta.focus();
+    back.onclick = () => startRenderForm(row, j);
+    gen.onclick = async () => {
+      gen.disabled = true; st2.textContent = 'starting…';
+      const r = await fetch('/api/jokes/render', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ id: j.id, prompt: ta.value, motion: mo.value }) });
+      const dd = await r.json();
+      if (!r.ok) { st2.textContent = dd.error || 'failed'; gen.disabled = false; return; }
+      pollRender(j); loadVault();
+    };
   };
 }
 
+const renderPolls = new Map();
 async function pollRender(j) {
-  for (let i = 0; i < 240; i++) { // up to ~20 min
+  if (renderPolls.get(j.id)) return;
+  renderPolls.set(j.id, true);
+  let last = '';
+  for (let i = 0; i < 300; i++) {
     await new Promise(r => setTimeout(r, 5000));
     let d;
     try { d = await (await fetch('/api/jokes/render-status?jokeId=' + j.id)).json(); } catch { continue; }
     if (!d || d.status === 'none') break;
-    if (d.status === 'running') continue;
-    loadVault(); loadCounts();
-    break;
+    const sig = d.status + ':' + (d.step || '');
+    if (sig !== last) { last = sig; loadVault(); loadCounts(); }
+    if (!RENDER_ACTIVE.has(d.status)) break;
+    if (!vaultEl.classList.contains('open')) break;
   }
+  renderPolls.delete(j.id);
   loadBalance();
 }
 

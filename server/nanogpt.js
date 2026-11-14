@@ -90,7 +90,7 @@ function dataUrl(filePath) {
   return `data:${mime};base64,${fs.readFileSync(filePath).toString('base64')}`;
 }
 
-// Normalized Image API: text-to-image and image-to-image/edit. Returns image bytes.
+// Normalized Image API: text-to-image and image-to-image/edit. Returns array of Buffers.
 // opts: { input_references: [dataUrl|url], aspect_ratio, resolution, n, ... }
 async function imageGen(model, prompt, opts = {}) {
   const res = await fetch(`${BASE}/api/v1/images`, {
@@ -100,12 +100,16 @@ async function imageGen(model, prompt, opts = {}) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(`imageGen ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
-  const item = (data.data || data.images || [])[0] || {};
-  if (item.b64_json) return Buffer.from(item.b64_json, 'base64');
-  const url = item.url || item.image_url || data.url;
-  if (!url) throw new Error(`imageGen: no image in response: ${JSON.stringify(data).slice(0, 300)}`);
-  const img = await fetch(url);
-  return Buffer.from(await img.arrayBuffer());
+  const items = data.data || data.images || [];
+  const out = [];
+  for (const item of items) {
+    if (item.b64_json) { out.push(Buffer.from(item.b64_json, 'base64')); continue; }
+    const url = item.url || item.image_url;
+    if (url) { const img = await fetch(url); out.push(Buffer.from(await img.arrayBuffer())); }
+  }
+  if (!out.length && data.url) { const img = await fetch(data.url); out.push(Buffer.from(await img.arrayBuffer())); }
+  if (!out.length) throw new Error(`imageGen: no image in response: ${JSON.stringify(data).slice(0, 300)}`);
+  return out;
 }
 
 // Async video jobs: POST /api/generate-video -> poll /api/video/status -> bytes.
