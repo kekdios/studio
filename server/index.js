@@ -42,7 +42,9 @@ function cookieToken(req) {
 app.use((req, res, next) => {
   const open = req.path === '/login' || req.path === '/api/login'
     || req.path === '/api/otp/request' || req.path === '/api/otp/verify'
-    || req.path === '/reelenderlogo.png' || req.path === '/reelenderlogosq.png';
+    || req.path === '/clips' || req.path === '/api/clips'
+    || req.path === '/reelenderlogo.png' || req.path === '/reelenderlogosq.png'
+    || req.path.startsWith('/clips-media/');
   if (open) return next();
   const token = cookieToken(req);
   if (token && sessions.has(token)) return next();
@@ -223,6 +225,16 @@ const PENDING_F = path.join(JF_DIR, 'pending.json');
 fs.mkdirSync(JF_AUDIO, { recursive: true });
 const SCOUT = fs.readFileSync(path.join(ROOT, 'config', 'joke_scout_prompt.md'), 'utf8');
 app.use('/joke-audio', express.static(JF_AUDIO));
+
+// --- public gallery: finished clips + joke text + social links ---
+const CLIPS_DIR = path.join(JF_DIR, 'clips');
+const CLIPS_JSON = path.join(CLIPS_DIR, 'clips.json');
+fs.mkdirSync(CLIPS_DIR, { recursive: true });
+app.use('/clips-media', express.static(CLIPS_DIR));
+app.get('/clips', (req, res) => res.sendFile(path.join(ROOT, 'public', 'gallery.html')));
+app.get('/api/clips', (req, res) => {
+  try { res.json(JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'))); } catch { res.json([]); }
+});
 
 const readJsonl = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } };
 const appendJsonl = (f, o) => fs.appendFileSync(f, JSON.stringify(o) + '\n');

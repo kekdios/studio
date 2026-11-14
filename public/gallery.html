@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jacob — daily jokes</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:#0a0a0f; color:#eee; font-family:-apple-system,system-ui,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid #1c1c26; position:sticky; top:0; background:#0a0a0f; z-index:1; }
+  header img { height:34px; border-radius:8px; }
+  header h1 { font-size:1rem; font-weight:600; margin:0; }
+  header .sub { color:#777; font-size:.8rem; }
+  #feed { max-width:480px; margin:0 auto; padding:20px 14px 60px; display:flex; flex-direction:column; gap:28px; }
+  .clip { background:#13131c; border:1px solid #23232f; border-radius:16px; overflow:hidden; }
+  .clip video { width:100%; display:block; background:#000; }
+  .clip .meta { padding:14px 16px; }
+  .clip .joke { font-size:1rem; line-height:1.5; margin:0 0 10px; }
+  .clip .date { font-size:.72rem; color:#666; margin-bottom:10px; }
+  .socials { display:flex; gap:8px; flex-wrap:wrap; }
+  .socials a { font-size:.75rem; color:#aaa; text-decoration:none; border:1px solid #333; padding:5px 11px; border-radius:999px; }
+  .socials a:hover { color:#fff; border-color:#666; }
+  .empty { text-align:center; color:#666; padding:60px 20px; }
+</style>
+</head>
+<body>
+<header>
+  <img src="/reelenderlogosq.png" alt="">
+  <div><h1>Jacob</h1><div class="sub">a joke a day</div></div>
+</header>
+<div id="feed"><div class="empty">loading…</div></div>
+<script>
+const feed = document.getElementById('feed');
+const socialLabel = { tiktok:'TikTok', instagram:'Instagram', youtube:'YouTube', x:'X' };
+const clips = await (await fetch('/api/clips')).json();
+feed.innerHTML = '';
+if (!clips.length) feed.innerHTML = '<div class="empty">no clips yet — Jacob is still in makeup</div>';
+for (const c of clips) {
+  const card = document.createElement('div');
+  card.className = 'clip';
+  const v = document.createElement('video');
+  v.src = '/clips-media/' + c.file;
+  v.controls = true; v.playsInline = true; v.preload = 'metadata';
+  card.appendChild(v);
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  if (c.joke) { const p = document.createElement('p'); p.className = 'joke'; p.textContent = c.joke; meta.appendChild(p); }
+  if (c.ts) { const d = document.createElement('div'); d.className = 'date'; d.textContent = c.ts; meta.appendChild(d); }
+  const links = Object.entries(c.socials || {}).filter(([,u]) => u);
+  if (links.length) {
+    const s = document.createElement('div'); s.className = 'socials';
+    for (const [k,u] of links) {
+      const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = 'watch on ' + (socialLabel[k] || k); s.appendChild(a);
+    }
+    meta.appendChild(s);
+  }
+  card.appendChild(meta);
+  feed.appendChild(card);
+}
+</script>
+</body>
+</html>

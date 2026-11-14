@@ -26,6 +26,7 @@ Your browser talks to the back office, the back office talks to the AI models. N
 | The app | Live on our DigitalOcean droplet at `reelender.com` |
 | The code | This Mac, `/Users/private/studio` — deployed to the server when we change it |
 | The joke vault | `accepted.jsonl` + `rejected.jsonl` + `pending.json` on the server — the permanent record |
+| The clips | `projects/joke-factory/clips/` — finished videos + a `clips.json` manifest (joke text, social links) feeding the public gallery |
 | Voice + joke audio | Saved next to the vault, replayable any time |
 | The books | Every API call logs its cost; nano-gpt balance shows in the header |
 
@@ -51,7 +52,9 @@ The whole product depends on Jacob being the same Jacob every day: one face, one
 The repeatable loop for every accepted joke: joke text → Jacob's voice reads it → a video model puts Jacob in a setting, lip-synced to the audio → a short clip ready for social. Same pipeline every time; only the joke and the backdrop change. The voice half is already working — this phase is the video half plus assembly.
 
 ### Phase 4 — Post it
-Vertical format for TikTok/Reels/Shorts, captions burned in (jokes land better muted), a consistent intro/outro beat. Manual posting at first; social APIs later if it earns its keep.
+Vertical format for TikTok/Reels/Shorts (our target is 716×1284, ~7–9s — Jacob's real clip size), captions burned in (jokes land better muted), a consistent intro/outro beat. Manual posting at first; social APIs later if it earns its keep.
+
+**The gallery** — a public page (no login) at reelender.com where anyone can watch every finished Jacob clip, read the joke text under the video, and follow the links out to the TikTok/IG/YouTube posts. The vault becomes a back catalog fans can binge; socials get a canonical home to link back to.
 
 ### Phase 5 — The accountant *(mostly done)*
 Every call already logs its cost and the nano-gpt balance shows in the room. Remaining: per-run and monthly caps so a runaway pipeline can't surprise you.
