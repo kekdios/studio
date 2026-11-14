@@ -3,6 +3,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const ng = require('./nanogpt');
 
 const ROOT = path.join(__dirname, '..');
@@ -364,12 +365,15 @@ const bestMatch = text => {
 const seenSet = () => new Set([...readJsonl(ACCEPTED_F), ...readJsonl(REJECTED_F)].map(j => norm(j.text)));
 const findJoke = id => { const hit = findInStores(id); return hit ? hit.list[hit.i] : null; };
 
-app.get('/api/jokes', (req, res) => res.json({
-  accepted: readJsonl(ACCEPTED_F),
-  rejected: readJsonl(REJECTED_F),
-  rejected_count: readJsonl(REJECTED_F).length,
-  pending: loadPending(),
-}));
+app.get('/api/jokes', (req, res) => {
+  const mark = l => l.map(j => renderJobs.has(j.id) ? { ...j, render: renderJobs.get(j.id) } : j);
+  res.json({
+    accepted: mark(readJsonl(ACCEPTED_F)),
+    rejected: readJsonl(REJECTED_F),
+    rejected_count: readJsonl(REJECTED_F).length,
+    pending: loadPending(),
+  });
+});
 
 app.post('/api/jokes/fetch', async (req, res) => {
   try {
@@ -487,6 +491,138 @@ app.post('/api/jokes/speak', async (req, res) => {
     console.error(e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// --- phase 3: joke -> clip pipeline ---
+// TTS (Jacob's voice) -> scene still (seedream edit of jacob-front into a setting)
+// -> OmniHuman avatar render (image+audio, lip-synced, length follows audio)
+// -> clips/ + poster + clips.json + produced flag.
+const RENDERS_DIR = path.join(JF_DIR, 'renders');
+const RENDER_JOBS_F = path.join(RENDERS_DIR, 'jobs.json');
+const JACOB_FRONT = path.join(JF_DIR, 'jacob', 'jacob-front.png');
+const JACOB_LOOK = 'the man in the photo — keep his face, black beanie, grey zip-up hoodie over bright orange top, blue/black hydration vest, black cargo shorts, bright blue leggings, neon trail runners exactly identical';
+fs.mkdirSync(RENDERS_DIR, { recursive: true });
+app.use('/renders-media', express.static(RENDERS_DIR)); // authed: owner-only render artifacts
+
+const renderJobs = new Map(); // jokeId -> job
+const saveRenderJobs = () => {
+  const flat = {};
+  for (const [k, j] of renderJobs) flat[k] = j;
+  fs.writeFileSync(RENDER_JOBS_F, JSON.stringify(flat, null, 1));
+};
+try {
+  for (const [k, j] of Object.entries(JSON.parse(fs.readFileSync(RENDER_JOBS_F, 'utf8')))) {
+    if (j.status === 'running') j.status = 'interrupted'; // server restarted mid-render
+    renderJobs.set(k, j);
+  }
+} catch {}
+
+function makePoster(mp4, jpg) {
+  let r = spawnSync('ffmpeg', ['-y', '-i', mp4, '-frames:v', '1', '-q:v', '3', jpg], { timeout: 30000 });
+  if (r.status === 0 && fs.existsSync(jpg)) return;
+  spawnSync('qlmanage', ['-t', '-s', '1024', '-o', path.dirname(jpg), mp4], { timeout: 30000 });
+  const gen = mp4 + '.png'; // qlmanage names it <file>.png
+  if (fs.existsSync(gen)) fs.renameSync(gen, jpg);
+}
+
+const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+async function runRender(job, joke, setting, motion) {
+  const dir = path.join(RENDERS_DIR, job.id);
+  fs.mkdirSync(dir, { recursive: true });
+  const step = s => { job.step = s; saveRenderJobs(); };
+  try {
+    // 1. voice — reuse the cached hear-it audio if present (free)
+    step('voice');
+    const audioPath = path.join(JF_AUDIO, `joke-${joke.id}.mp3`);
+    if (!fs.existsSync(audioPath)) {
+      fs.writeFileSync(audioPath, await ng.speak(joke.text, MODELS.tts, TTS_VOICE));
+      const hit = findInStores(joke.id);
+      if (hit) { hit.list[hit.i].audio = `/joke-audio/joke-${joke.id}.mp3`; stores[hit.name].save(hit.list); }
+    }
+    if (fs.statSync(audioPath).size * 8 / 128000 < 4)
+      throw new Error('joke reads under 4 seconds — too short for the avatar model; add a beat with [pause]');
+
+    // 2. scene still — Jacob placed in the setting
+    step('scene');
+    const scenePath = path.join(dir, 'scene.png');
+    if (!fs.existsSync(scenePath)) {
+      fs.writeFileSync(scenePath, await ng.imageGen(MODELS.scene_image,
+        `Put ${JACOB_LOOK} standing in ${setting}. He faces the camera straight on, deadpan, mid-shot from thighs up, cinematic realism, vertical 9:16 framing.`,
+        { input_references: [ng.dataUrl(JACOB_FRONT)], aspect_ratio: '9:16', resolution: '1k' }));
+    }
+    job.sceneUrl = `/renders-media/${job.id}/scene.png`;
+
+    // 3. avatar render — still + audio -> lip-synced clip
+    step('render');
+    const rawPath = path.join(dir, 'final.mp4');
+    if (!fs.existsSync(rawPath)) {
+      const v = await ng.video({
+        model: MODELS.avatar_video,
+        prompt: motion,
+        imageDataUrl: ng.dataUrl(scenePath),
+        audioDataUrl: ng.dataUrl(audioPath),
+      });
+      fs.writeFileSync(rawPath, v.buffer);
+      job.runId = v.runId;
+      if (v.meta?.data?.cost != null) job.cost = v.meta.data.cost;
+    }
+
+    // 4. publish to the gallery
+    step('publish');
+    const clips = JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'));
+    let clipId = 'jacob-' + slugify(joke.text.split(/\s+/).slice(0, 4).join(' ')).slice(0, 40);
+    if (clips.some(c => c.id === clipId)) clipId += '-' + crypto.randomBytes(3).toString('hex');
+    const mp4 = clipId + '.mp4', poster = clipId + '.jpg';
+    fs.copyFileSync(rawPath, path.join(CLIPS_DIR, mp4));
+    makePoster(path.join(CLIPS_DIR, mp4), path.join(CLIPS_DIR, poster));
+    const entry = {
+      id: clipId,
+      title: joke.text.split(/\s+/).slice(0, 5).join(' ').replace(/[[\]"']/g, '') + '…',
+      file: mp4, joke: joke.text, poster,
+      socials: { tiktok: '', instagram: '', youtube: '', x: '' },
+      ts: new Date().toISOString().slice(0, 10),
+    };
+    clips.push(entry);
+    fs.writeFileSync(CLIPS_JSON, JSON.stringify(clips, null, 2));
+    const hit = findInStores(joke.id);
+    if (hit && hit.name === 'accepted') {
+      hit.list[hit.i].produced = true;
+      hit.list[hit.i].clip = clipId;
+      stores.accepted.save(hit.list);
+    }
+    job.status = 'done'; job.clipId = clipId; job.clipUrl = '/clips';
+  } catch (e) {
+    console.error('render failed:', e);
+    job.status = 'error'; job.error = e.message;
+  }
+  saveRenderJobs();
+}
+
+app.post('/api/jokes/render', async (req, res) => {
+  const { id, setting, motion } = req.body || {};
+  const joke = findJoke(id);
+  if (!joke) return res.status(404).json({ error: 'joke not found' });
+  const existing = renderJobs.get(id);
+  if (existing && existing.status === 'running') return res.status(409).json({ error: 'already rendering', job: existing });
+  try {
+    const bal = await ng.balance();
+    if (Number(bal.usd_spendable_balance) < (MODELS.max_clip_cost || 3))
+      return res.status(402).json({ error: `balance below per-clip cap ($${MODELS.max_clip_cost}) — top up nano-gpt` });
+  } catch {}
+  const job = { id: crypto.randomBytes(6).toString('hex'), jokeId: id, status: 'running', step: 'queued', ts: new Date().toISOString() };
+  renderJobs.set(id, job);
+  saveRenderJobs();
+  runRender(job, joke,
+    (setting || '').trim() || 'a dim concrete multi-storey car park at night, lit by cold fluorescent strips',
+    (motion || '').trim() || 'The man tells the joke straight to camera, deadpan. Small natural head movements and one small hand gesture, static camera.');
+  res.json({ ok: true, jobId: job.id });
+});
+
+app.get('/api/jokes/render-status', (req, res) => {
+  const job = renderJobs.get(req.query.jokeId);
+  if (!job) return res.json({ status: 'none' });
+  res.json(job);
 });
 // --- end joke factory ---
 

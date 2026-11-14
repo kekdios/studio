@@ -40,6 +40,13 @@
   .vrow .vbtns button:hover { border-color:#666; color:#fff; }
   .vrow .vbtns button.prod { border-color:#2d7a4f; color:#3ddc84; }
   .vrow .vbtns button.del { border-color:#7a2d2d; }
+  .vrow .vrender { font-size:.72rem; color:#e8b84b; margin-bottom:8px; }
+  .vrow .vrender.err { color:#e2483d; }
+  .vrow .vrender.ok { color:#3ddc84; }
+  .vrow .rform { width:100%; display:flex; flex-direction:column; gap:6px; }
+  .vrow .rform input { background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:6px 10px; font:inherit; font-size:.8rem; }
+  .vrow .rform .rrow { display:flex; gap:6px; align-items:center; }
+  .vrow .rform .rstatus { font-size:.72rem; color:#888; }
   .vrow textarea { width:100%; background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:8px 10px; font:inherit; font-size:.9rem; margin-bottom:8px; resize:vertical; }
   .vempty { text-align:center; color:#555; padding:40px 10px; font-size:.85rem; }
 
@@ -398,7 +405,17 @@ function renderVault() {
       if (d.audioUrl) new Audio(d.audioUrl).play().catch(() => {});
     });
     const move = async to => { await fetch('/api/jokes/move', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, to}) }); loadVault(); loadCounts(); };
+    if (j.render && j.render.status !== 'none') {
+      const r = document.createElement('div');
+      r.className = 'vrender';
+      if (j.render.status === 'running') r.textContent = `⏳ ${j.render.step}… (renders take a few minutes)`;
+      else if (j.render.status === 'done') { r.classList.add('ok'); r.innerHTML = `✓ clip made — <a href="/clips" target="_blank" style="color:#3ddc84;">gallery ↗</a>`; }
+      else { r.classList.add('err'); r.textContent = `✗ render ${j.render.status}: ${j.render.error || ''}`; }
+      row.insertBefore(r, btns);
+    }
     if (vaultTab === 'accepted' || vaultTab === 'produced') {
+      if (!j.render || j.render.status !== 'running')
+        mk('🎬 clip', '', () => startRenderForm(row, j));
       mk(j.produced ? 'unmark produced' : '✓ produced', 'prod', async () => {
         await fetch('/api/jokes/produce', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, produced:!j.produced}) });
         loadVault();
@@ -416,6 +433,48 @@ function renderVault() {
     row.appendChild(btns);
     vaultList.appendChild(row);
   }
+}
+
+function startRenderForm(row, j) {
+  const btns = row.querySelector('.vbtns');
+  btns.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'rform';
+  const setting = document.createElement('input');
+  setting.placeholder = 'setting — e.g. a rainy bus stop at night (blank = car park)';
+  const motion = document.createElement('input');
+  motion.placeholder = 'movement — e.g. points off to the side (blank = default)';
+  const rrow = document.createElement('div');
+  rrow.className = 'rrow';
+  const go = document.createElement('button'); go.textContent = 'render (~$0.80)'; go.className = 'prod';
+  const cancel = document.createElement('button'); cancel.textContent = 'cancel';
+  const st = document.createElement('span'); st.className = 'rstatus';
+  rrow.append(go, cancel, st);
+  wrap.append(setting, motion, rrow);
+  btns.appendChild(wrap);
+  setting.focus();
+  cancel.onclick = () => renderVault();
+  go.onclick = async () => {
+    go.disabled = true; st.textContent = 'starting…';
+    const r = await fetch('/api/jokes/render', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id: j.id, setting: setting.value, motion: motion.value }) });
+    const d = await r.json();
+    if (!r.ok) { st.textContent = d.error || 'failed'; go.disabled = false; return; }
+    pollRender(j);
+  };
+}
+
+async function pollRender(j) {
+  for (let i = 0; i < 240; i++) { // up to ~20 min
+    await new Promise(r => setTimeout(r, 5000));
+    let d;
+    try { d = await (await fetch('/api/jokes/render-status?jokeId=' + j.id)).json(); } catch { continue; }
+    if (!d || d.status === 'none') break;
+    if (d.status === 'running') continue;
+    loadVault(); loadCounts();
+    break;
+  }
+  loadBalance();
 }
 
 function startVaultEdit(row, j) {

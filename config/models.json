@@ -2,5 +2,8 @@
   "producer_brain": "anthropic/claude-sonnet-5.5:online",
   "stt": "Whisper-Large-V3",
   "tts": "elevenlabs/eleven-v4-turbo",
-  "tts_voice_secret": "elevenlabs-voice-id"
+  "tts_voice_secret": "elevenlabs-voice-id",
+  "scene_image": "bytedance/seedream-v5.5/edit",
+  "avatar_video": "bytedance/omnihuman/v2",
+  "max_clip_cost": 3.0
 }

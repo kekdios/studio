@@ -53,6 +53,7 @@ Your browser talks to the back office, the back office talks to the AI models. T
 - [x] **Jacob locked** — three turnaround photos + written character sheet staged; voice is your ElevenLabs voice (same as the scout's).
 - [x] **Phone-ready** — room, login, and gallery all responsive; voice input works on iOS.
 - [x] **Public face** — landing page (samples + sign-in footer) separate from the full gallery; `www` redirects to the apex so one login works everywhere. Logout button in the room. Clips marked open source on both public pages.
+- [x] **The joke machine** — kept joke → Jacob's voice → scene still of Jacob in a setting → lip-synced video → public gallery, one "🎬 clip" button in the vault. ~$0.80 and ~4 minutes per clip.
 
 ## The build phases
 
@@ -62,8 +63,8 @@ Voice conversation, OTP login, scout button, joke cards, the vault catalog, fuzz
 ### Phase 2 — Lock Jacob ✅
 The whole product depends on Jacob being the same Jacob every day: one face, one outfit, one voice. Done: three turnaround references staged in `projects/joke-factory/jacob/` (front, left, right) plus a written character sheet — same grey hoodie/orange top/vest/cargo shorts/blue leggings/neon runners. Voice locked too: Jacob speaks with your ElevenLabs voice — the same one the scout uses. These become the references every video is built from.
 
-### Phase 3 — The joke machine *(next)*
-The repeatable loop for every accepted joke: joke text → Jacob's voice reads it → a video model puts Jacob in a setting, lip-synced to the audio → a short clip ready for social. Same pipeline every time; only the joke and the backdrop change. The voice half is already working — this phase is the video half plus assembly.
+### Phase 3 — The joke machine ✅ *(live)*
+The repeatable loop for every accepted joke: joke text → Jacob's voice reads it → a video model puts Jacob in a setting, lip-synced to the audio → a short clip ready for social. Same pipeline every time; only the joke and the backdrop change. Done: in the vault's kept tab, "🎬 clip" opens a little form — where is he (setting), what does he do (movement) — then the factory renders: voice → scene still → lip-synced video → straight into the public gallery, marked produced. About $0.80 and ~4 minutes a clip.
 
 ### Phase 4 — Post it
 Vertical format for TikTok/Reels/Shorts (our target is 716×1284, ~7–9s — Jacob's real clip size), captions burned in (jokes land better muted), a consistent intro/outro beat. Manual posting at first; social APIs later if it earns its keep.
