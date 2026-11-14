@@ -89,6 +89,24 @@
   .joke .dupe { display:block; width:100%; text-align:left; font-size:.72rem; color:#e8b84b; background:#221d10; border:1px solid #5a4a1a; border-radius:8px; padding:6px 10px; margin-bottom:10px; cursor:pointer; line-height:1.4; }
   .joke .dupe.open { color:#ffd97a; }
 
+  section { flex:1; display:flex; flex-direction:column; min-height:0; }
+  section[hidden] { display:none; }
+  #stageBar { display:flex; gap:6px; padding:8px 20px; border-bottom:1px solid #1c1c26; align-items:center; position:sticky; top:0; background:#0a0a0f; z-index:5; flex-wrap:wrap; }
+  #stageBar .stab { background:none; border:1px solid #333; color:#aaa; font-size:.82rem; padding:6px 14px; border-radius:999px; cursor:pointer; position:relative; }
+  #stageBar .stab.on { color:#fff; border-color:#777; background:#1c1c26; }
+  #stageBar .stab:disabled { opacity:.35; cursor:default; }
+  #stageBar .stab .dot { position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:50%; background:#e8b84b; }
+  #workOn { margin-left:auto; font-size:.72rem; color:#777; max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pane { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:640px; width:100%; margin:0 auto; }
+  .pane .phint { color:#777; font-size:.85rem; }
+  .pane .phint.big { text-align:center; padding:60px 20px; font-size:.95rem; }
+  .pane .pjoke { background:#16161f; border:1px solid #2a2a3a; border-radius:12px; padding:12px 14px; font-size:.9rem; line-height:1.45; }
+  .pane .pjoke .ptag { font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; color:#e8b84b; margin-bottom:6px; }
+  .pane .picklist { display:flex; flex-direction:column; gap:8px; }
+  .pane .pickrow { background:#16161f; border:1px solid #2a2a3a; border-radius:10px; padding:10px 12px; font-size:.82rem; display:flex; gap:10px; align-items:center; cursor:pointer; }
+  .pane .pickrow:hover { border-color:#555; }
+  .pane .pickrow span { flex:1; }
+  .pane .sceneBig { width:min(300px,80%); border-radius:12px; align-self:center; border:1px solid #2a2a3a; }
   #controls { border-top:1px solid #1c1c26; padding:16px 20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
   #status { font-size:.8rem; color:#888; min-height:1.2em; }
   #btnRow { display:flex; gap:14px; align-items:center; }
@@ -125,7 +143,16 @@
   <button id="logout">log out</button>
 </header>
 
-<div id="transcript"></div>
+<nav id="stageBar">
+  <button class="stab on" data-s="voice">1 · voice</button>
+  <button class="stab" data-s="image">2 · image</button>
+  <button class="stab" data-s="video" disabled>3 · video</button>
+  <span id="workOn"></span>
+</nav>
+
+<section id="stage-voice"><div id="transcript"></div></section>
+<section id="stage-image" hidden><div id="imagePane" class="pane"></div></section>
+<section id="stage-video" hidden><div id="videoPane" class="pane"></div></section>
 
 <div id="vault">
   <div id="vaultCard">
@@ -266,7 +293,12 @@ function renderJoke(j) {
     card.classList.add(decision === 'accepted' ? 'kept' : 'tossed');
     actions.innerHTML = `<span class="verdict">${decision === 'accepted' ? 'kept' : 'tossed'}</span>`;
     actions.prepend(hear);
-    loadCounts();
+    if (decision === 'accepted') {
+      const prod = document.createElement('button'); prod.className = 'keep'; prod.textContent = '🎬 produce';
+      prod.onclick = () => { jokesCache = jokesCache || { accepted: [j] }; startProduction(j.id); };
+      actions.append(prod);
+    }
+    loadCounts(); refreshJokes();
   };
   keep.onclick = () => decide('accepted');
   toss.onclick = () => decide('rejected');
@@ -387,7 +419,6 @@ async function loadVault() {
   document.getElementById('nProd').textContent = `(${d.accepted.filter(j => j.produced).length})`;
   document.getElementById('nTossed').textContent = `(${d.rejected.length})`;
   renderVault();
-  for (const j of d.accepted) if (j.render && RENDER_ACTIVE.has(j.render.status)) pollRender(j); // resume tracking
 }
 
 const RENDER_ACTIVE = new Set(['running', 'awaiting_scene', 'awaiting_publish']);
@@ -415,71 +446,16 @@ function stageBar(j) {
   return el;
 }
 
-// what each gate shows while the workflow waits on the director
-function gatePanel(j) {
+// one-line status for vault rows — the actual gate UIs live in the stage panes
+function statusLine(j) {
   const r = j.render;
   const wrap = document.createElement('div');
-  const post = body => fetch('/api/jokes/render-action', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ jokeId:j.id, ...body }) });
-
-  if (r.status === 'running') {
-    wrap.className = 'vrender';
-    wrap.textContent = `⏳ ${r.step}… (renders take a few minutes)`;
-    return wrap;
-  }
-  if (r.status === 'awaiting_scene') {
-    wrap.className = 'rform';
-    const grid = document.createElement('div'); grid.className = 'vscenes';
-    let picked = r.pick ?? -1;
-    (r.scenes || []).forEach((u, i) => {
-      const img = document.createElement('img');
-      img.src = u; img.loading = 'lazy'; img.alt = `still ${i+1}`;
-      if (i === picked) img.classList.add('pick');
-      img.onclick = () => { picked = i; grid.querySelectorAll('img').forEach(x => x.classList.remove('pick')); img.classList.add('pick'); };
-      grid.appendChild(img);
-    });
-    const ta = document.createElement('textarea'); ta.rows = 5; ta.value = r.prompt || '';
-    const mo = document.createElement('input'); mo.value = r.motion || ''; mo.placeholder = 'movement direction';
-    const rr = document.createElement('div'); rr.className = 'rrow';
-    const again = document.createElement('button'); again.textContent = '↻ 4 new (~$0.25)';
-    const go = document.createElement('button'); go.className = 'prod'; go.textContent = 'render picked (~$0.75)';
-    const cancel = document.createElement('button'); cancel.textContent = 'cancel';
-    const st = document.createElement('span'); st.className = 'rstatus'; st.textContent = 'tap a still — or edit the prompt and reroll';
-    rr.append(again, go, cancel, st);
-    wrap.append(grid, ta, mo, rr);
-    again.onclick = async () => {
-      again.disabled = true; st.textContent = 'generating…';
-      const x = await post({ action:'new-stills', prompt:ta.value, motion:mo.value });
-      const d = await x.json();
-      if (!x.ok) { st.textContent = d.error || 'failed'; again.disabled = false; } else pollRender(j);
-    };
-    go.onclick = async () => {
-      if (picked < 0) { st.textContent = 'pick a still first'; return; }
-      st.textContent = 'rendering…';
-      const x = await post({ action:'approve-scene', pick, motion:mo.value });
-      const d = await x.json();
-      if (!x.ok) st.textContent = d.error || 'failed'; else pollRender(j);
-    };
-    cancel.onclick = async () => {
-      if (!confirm('cancel this render?')) return;
-      await post({ action:'cancel' }); loadVault();
-    };
-    return wrap;
-  }
-  if (r.status === 'awaiting_publish') {
-    const a = document.createElement('a');
-    a.className = 'watch'; a.href = r.clipPreview; a.target = '_blank'; a.textContent = '▶ watch the take';
-    const br = document.createElement('div'); br.className = 'rrow'; br.style.marginBottom = '8px';
-    const pub = document.createElement('button'); pub.className = 'prod'; pub.textContent = 'publish to gallery';
-    const bin = document.createElement('button'); bin.className = 'del'; bin.textContent = 'bin it';
-    br.append(pub, bin);
-    wrap.append(a, br);
-    pub.onclick = async () => { pub.disabled = true; await post({ action:'publish' }); pollRender(j); };
-    bin.onclick = async () => { if (confirm('bin this take? it stays off the gallery')) { await post({ action:'reject' }); loadVault(); } };
-    return wrap;
-  }
   wrap.className = 'vrender';
-  if (r.status === 'done') { wrap.classList.add('ok'); wrap.innerHTML = `✓ live — <a href="/clips" target="_blank" style="color:#3ddc84;">gallery ↗</a>`; }
-  else if (r.status === 'rejected') wrap.textContent = 'binned — start again whenever';
+  if (r.status === 'running') wrap.textContent = `⏳ ${r.step}…`;
+  else if (r.status === 'awaiting_scene') wrap.textContent = 'waiting on you: pick a still';
+  else if (r.status === 'awaiting_publish') wrap.textContent = 'waiting on you: review the take';
+  else if (r.status === 'done') { wrap.classList.add('ok'); wrap.innerHTML = `✓ live — <a href="/clips" target="_blank" style="color:#3ddc84;">gallery ↗</a>`; }
+  else if (r.status === 'rejected') wrap.textContent = 'binned';
   else if (r.status === 'cancelled') wrap.textContent = 'cancelled';
   else { wrap.classList.add('err'); wrap.textContent = `✗ render ${r.status}: ${r.error || ''}`; }
   return wrap;
@@ -518,20 +494,25 @@ function renderVault() {
     const move = async to => { await fetch('/api/jokes/move', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, to}) }); loadVault(); loadCounts(); };
     const bar = vaultTab !== 'rejected' && stageBar(j);
     if (bar) row.appendChild(bar);
-    if (j.render && j.render.status !== 'none') row.appendChild(gatePanel(j));
-    if (vaultTab === 'accepted' || vaultTab === 'produced') {
-      if (!j.render || !RENDER_ACTIVE.has(j.render.status))
-        mk('🎬 clip', '', () => startRenderForm(row, j));
+    if (j.render && j.render.status !== 'none') row.appendChild(statusLine(j));
+    const locked = isLocked(j) && !unlocked.has(j.id);
+    if (locked) {
+      mk('▶ review', '', () => { jokesCache = vaultData; startProduction(j.id); });
+      btns.appendChild(lockRow(j, renderVault));
+    } else if (vaultTab === 'accepted' || vaultTab === 'produced') {
+      mk(j.render && j.render.status !== 'none' ? '▶ resume work' : '🎬 clip', j.render && RENDER_ACTIVE.has(j.render.status) ? 'prod' : '',
+        () => { jokesCache = vaultData; startProduction(j.id); });
       mk(j.produced ? 'unmark produced' : '✓ produced', 'prod', async () => {
         await fetch('/api/jokes/produce', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, produced:!j.produced}) });
         loadVault();
       });
+      if (isLocked(j)) mk('🔓 lock', '', () => { unlocked.delete(j.id); renderVault(); });
       mk('→ toss', '', () => move('rejected'));
     } else {
       mk('→ keep', 'prod', () => move('accepted'));
     }
-    mk('edit', '', () => startVaultEdit(row, j));
-    mk('delete', 'del', async () => {
+    if (!locked) mk('edit', '', () => startVaultEdit(row, j));
+    if (!locked) mk('delete', 'del', async () => {
       if (!confirm('Delete this joke forever?')) return;
       await fetch('/api/jokes/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id}) });
       loadVault(); loadCounts();
@@ -541,70 +522,327 @@ function renderVault() {
   }
 }
 
-// stage 0: direction -> preview prompt -> generate 4 stills
-function startRenderForm(row, j) {
-  const btns = row.querySelector('.vbtns');
-  btns.innerHTML = '';
-  const wrap = document.createElement('div');
-  wrap.className = 'rform';
-  const setting = document.createElement('input');
-  setting.placeholder = 'setting — blank = car park at night';
+// --- stage-organized production: voice → image → video, sequential ---
+let stage = 'voice';
+let jokesCache = null;
+let currentId = localStorage.getItem('prodJoke') || null;
+
+const controlsEl = document.getElementById('controls');
+const voiceSec = document.getElementById('stage-voice');
+const imageSec = document.getElementById('stage-image');
+const videoSec = document.getElementById('stage-video');
+const imagePane = document.getElementById('imagePane');
+const videoPane = document.getElementById('videoPane');
+
+function currentJoke() {
+  if (!currentId || !jokesCache) return null;
+  return [...(jokesCache.accepted || []), ...(jokesCache.pending || []), ...(jokesCache.rejected || [])]
+    .find(j => j.id === currentId) || null;
+}
+const sigOf = j => j?.render ? `${j.render.status}:${j.render.step || ''}:${(j.render.scenes || []).length}` : '';
+const atVideoStep = r => r && (r.status === 'awaiting_publish' || r.status === 'done'
+  || (r.status === 'running' && ['render', 'publish'].includes(r.step))
+  || (['error', 'interrupted'].includes(r.status) && r.step === 'render'));
+
+async function refreshJokes() {
+  try { jokesCache = await (await fetch('/api/jokes')).json(); } catch { return; }
+  setKept(jokesCache.accepted.length);
+  updateNav();
+}
+
+function videoAllowed() { const j = currentJoke(); return !!(j && atVideoStep(j.render)); }
+
+function updateNav() {
+  const j = currentJoke();
+  document.querySelector('.stab[data-s="video"]').disabled = !videoAllowed();
+  let imgDot = false, vidDot = false;
+  for (const x of (jokesCache?.accepted || [])) {
+    if (x.render?.status === 'awaiting_scene') imgDot = true;
+    if (x.render?.status === 'awaiting_publish') vidDot = true;
+  }
+  for (const [s, on] of [['image', imgDot], ['video', vidDot]]) {
+    const tab = document.querySelector(`.stab[data-s="${s}"]`);
+    tab.querySelector('.dot')?.remove();
+    if (on) { const d = document.createElement('span'); d.className = 'dot'; tab.appendChild(d); }
+  }
+  document.getElementById('workOn').textContent = j ? `working on: “${j.text.slice(0, 45)}…”` : '';
+}
+
+function setStage(s) {
+  if (s === 'video' && !videoAllowed()) return; // sequential — earn it at the stills gate
+  stage = s;
+  document.querySelectorAll('#stageBar .stab').forEach(b => b.classList.toggle('on', b.dataset.s === s));
+  voiceSec.hidden = s !== 'voice';
+  imageSec.hidden = s !== 'image';
+  videoSec.hidden = s !== 'video';
+  controlsEl.style.display = s === 'voice' ? '' : 'none';
+  renderStage();
+}
+document.querySelectorAll('#stageBar .stab').forEach(b => { b.onclick = () => setStage(b.dataset.s); });
+
+function renderStage() {
+  if (stage === 'image') renderImage();
+  else if (stage === 'video') renderVideo();
+  updateNav();
+}
+
+function startProduction(id) {
+  currentId = id;
+  localStorage.setItem('prodJoke', id);
+  const r = currentJoke()?.render;
+  vaultEl.classList.remove('open');
+  setStage(r && atVideoStep(r) ? 'video' : 'image');
+  ensurePolling();
+}
+
+function hintEl(text, cls) { const d = document.createElement('div'); d.className = 'phint' + (cls ? ' ' + cls : ''); d.textContent = text; return d; }
+function jokeCard(j, tag) {
+  const d = document.createElement('div'); d.className = 'pjoke';
+  const t = document.createElement('div'); t.className = 'ptag'; t.textContent = tag || 'in production';
+  d.appendChild(t);
+  d.appendChild(document.createTextNode(j.text));
+  const bar = stageBar(j); if (bar) d.appendChild(bar);
+  return d;
+}
+
+// IMAGE stage: pick joke → direction → prompt → 4 stills → pick one
+function renderImage() {
+  const j = currentJoke();
+  const r = j?.render;
+  imagePane.innerHTML = '';
+  if (!j) {
+    imagePane.appendChild(hintEl('pick a kept joke — the image step builds the scene Jacob stands in', 'big'));
+    const pl = document.createElement('div'); pl.className = 'picklist';
+    for (const x of (jokesCache?.accepted || [])) {
+      const row = document.createElement('div'); row.className = 'pickrow';
+      const badge = x.render ? (RENDER_ACTIVE.has(x.render.status) ? '⏳ ' + x.render.step
+        : x.render.status === 'done' ? '✓ live' : x.render.status) : '🎬';
+      row.innerHTML = `<span></span><b>${badge}</b>`;
+      row.querySelector('span').textContent = x.text;
+      row.onclick = () => { currentId = x.id; localStorage.setItem('prodJoke', x.id); renderStage(); };
+      pl.appendChild(row);
+    }
+    if (!(jokesCache?.accepted || []).length) pl.appendChild(hintEl('nothing kept yet — go keep jokes in the voice step'));
+    imagePane.appendChild(pl);
+    return;
+  }
+  imagePane.appendChild(jokeCard(j));
+  if (!r || ['none', 'rejected', 'cancelled'].includes(r.status)
+      || (['error', 'interrupted'].includes(r.status) && r.step !== 'render')) {
+    if (r && ['error', 'interrupted'].includes(r.status)) imagePane.appendChild(hintEl(`last run ${r.status}: ${r.error || ''} — adjust and go again`));
+    if (r && r.status === 'rejected') imagePane.appendChild(hintEl('last take was binned — new direction, new stills'));
+    renderDirection(imagePane, j);
+    return;
+  }
+  if (r.status === 'awaiting_scene') { renderStillGate(imagePane, j); return; }
+  if (r.status === 'running' && r.step !== 'render') { imagePane.appendChild(hintEl(`⏳ ${r.step}…`)); return; }
+  if (r.sceneUrl) { const im = document.createElement('img'); im.className = 'sceneBig'; im.src = r.sceneUrl; imagePane.appendChild(im); }
+  imagePane.appendChild(hintEl('still locked ✓ — this joke is at the video step'));
+}
+
+function renderDirection(pane, j) {
+  const wrap = document.createElement('div'); wrap.className = 'rform';
+  const setting = document.createElement('input'); setting.placeholder = 'setting — blank = car park at night';
   const fr = document.createElement('select');
   fr.innerHTML = '<option value="full">full body (shoes in frame)</option><option value="waist">waist-up</option>';
-  const motion = document.createElement('input');
-  motion.placeholder = 'movement — blank = default';
+  const motion = document.createElement('input'); motion.placeholder = 'movement — blank = default';
   const rr = document.createElement('div'); rr.className = 'rrow';
   const next = document.createElement('button'); next.className = 'prod'; next.textContent = 'see prompt →';
-  const cancel = document.createElement('button'); cancel.textContent = 'cancel';
   const st = document.createElement('span'); st.className = 'rstatus';
-  rr.append(next, cancel, st);
+  rr.append(next, st);
   wrap.append(setting, fr, motion, rr);
-  btns.appendChild(wrap);
-  setting.focus();
-  cancel.onclick = () => renderVault();
+  pane.appendChild(wrap);
   next.onclick = async () => {
     next.disabled = true; st.textContent = 'writing prompt…';
-    const d = await (await fetch('/api/jokes/render-preview', { method:'POST', headers:{'Content-Type':'application/json'},
+    const d = await (await fetch('/api/jokes/render-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ setting: setting.value, framing: fr.value }) })).json();
     wrap.innerHTML = '';
     const ta = document.createElement('textarea'); ta.rows = 5; ta.value = d.prompt;
     const mo = document.createElement('input'); mo.value = motion.value || d.defaultMotion || '';
     const rr2 = document.createElement('div'); rr2.className = 'rrow';
     const gen = document.createElement('button'); gen.className = 'prod'; gen.textContent = 'generate 4 stills (~$0.25)';
-    const back = document.createElement('button'); back.textContent = '← back';
-    const st2 = document.createElement('span'); st2.className = 'rstatus';
+    const back = document.createElement('button'); back.textContent = '← direction';
+    const st2 = document.createElement('span'); st2.className = 'rstatus'; st2.textContent = 'edit the prompt however you like';
     rr2.append(gen, back, st2);
     wrap.append(ta, mo, rr2);
     ta.focus();
-    back.onclick = () => startRenderForm(row, j);
+    back.onclick = () => renderImage();
     gen.onclick = async () => {
       gen.disabled = true; st2.textContent = 'starting…';
-      const r = await fetch('/api/jokes/render', { method:'POST', headers:{'Content-Type':'application/json'},
+      const x = await fetch('/api/jokes/render', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: j.id, prompt: ta.value, motion: mo.value }) });
-      const dd = await r.json();
-      if (!r.ok) { st2.textContent = dd.error || 'failed'; gen.disabled = false; return; }
-      pollRender(j); loadVault();
+      const dd = await x.json();
+      if (!x.ok) { st2.textContent = dd.error || 'failed'; gen.disabled = false; return; }
+      await refreshJokes(); renderStage(); ensurePolling();
     };
   };
 }
 
-const renderPolls = new Map();
-async function pollRender(j) {
-  if (renderPolls.get(j.id)) return;
-  renderPolls.set(j.id, true);
-  let last = '';
-  for (let i = 0; i < 300; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    let d;
-    try { d = await (await fetch('/api/jokes/render-status?jokeId=' + j.id)).json(); } catch { continue; }
-    if (!d || d.status === 'none') break;
-    const sig = d.status + ':' + (d.step || '');
-    if (sig !== last) { last = sig; loadVault(); loadCounts(); }
-    if (!RENDER_ACTIVE.has(d.status)) break;
-    if (!vaultEl.classList.contains('open')) break;
+function renderStillGate(pane, j) {
+  const r = j.render;
+  const wrap = document.createElement('div'); wrap.className = 'rform';
+  const grid = document.createElement('div'); grid.className = 'vscenes';
+  let picked = r.pick ?? -1;
+  (r.scenes || []).forEach((u, i) => {
+    const img = document.createElement('img');
+    img.src = u; img.loading = 'lazy'; img.alt = `still ${i + 1}`;
+    if (i === picked) img.classList.add('pick');
+    img.onclick = () => { picked = i; grid.querySelectorAll('img').forEach(x => x.classList.remove('pick')); img.classList.add('pick'); };
+    grid.appendChild(img);
+  });
+  const ta = document.createElement('textarea'); ta.rows = 5; ta.value = r.prompt || '';
+  const mo = document.createElement('input'); mo.value = r.motion || ''; mo.placeholder = 'movement direction';
+  const rr = document.createElement('div'); rr.className = 'rrow';
+  const again = document.createElement('button'); again.textContent = '↻ 4 new (~$0.25)';
+  const go = document.createElement('button'); go.className = 'prod'; go.textContent = 'render picked (~$0.75)';
+  const cancel = document.createElement('button'); cancel.textContent = '✕ start over';
+  cancel.title = 'scrap these stills, back to direction';
+  const st = document.createElement('span'); st.className = 'rstatus'; st.textContent = 'tap a still — or edit the prompt and reroll';
+  rr.append(again, go, cancel, st);
+  wrap.append(grid, ta, mo, rr);
+  pane.appendChild(wrap);
+  const post = body => fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, ...body }) });
+  again.onclick = async () => {
+    again.disabled = true; st.textContent = 'generating…';
+    const d = await (await post({ action: 'new-stills', prompt: ta.value, motion: mo.value })).json();
+    if (d.error) { st.textContent = d.error; again.disabled = false; } else { await refreshJokes(); ensurePolling(); }
+  };
+  go.onclick = async () => {
+    if (picked < 0) { st.textContent = 'pick a still first'; return; }
+    st.textContent = 'rendering…';
+    const d = await (await post({ action: 'approve-scene', pick, motion: mo.value })).json();
+    if (d.error) { st.textContent = d.error; return; }
+    await refreshJokes(); setStage('video'); ensurePolling();
+  };
+  cancel.onclick = async () => {
+    if (!confirm('start over? the stills and voice stay on disk but this job resets')) return;
+    await post({ action: 'cancel' }); await refreshJokes(); renderStage();
+  };
+}
+
+// published clips are locked against accidents until explicitly unlocked
+const unlocked = new Set();
+const isLocked = j => j.produced || j.render?.status === 'done';
+function lockRow(j, reveal) {
+  const b = document.createElement('button');
+  b.textContent = '🔒 published — unlock?';
+  b.title = 'protects a finished clip from accidents';
+  b.onclick = () => {
+    if (confirm('unlock this published clip? you\'ll be able to unpublish / move / delete it')) {
+      unlocked.add(j.id); reveal();
+    }
+  };
+  return b;
+}
+
+// VIDEO stage: watch → publish or bin
+function renderVideo() {
+  const j = currentJoke();
+  const r = j?.render;
+  videoPane.innerHTML = '';
+  if (!r || !atVideoStep(r)) {
+    videoPane.appendChild(hintEl('nothing at the video step yet', 'big'));
+  } else {
+    videoPane.appendChild(jokeCard(j));
+    if (r.status === 'running') videoPane.appendChild(hintEl(`⏳ ${r.step}… a few minutes`));
+    if (['error', 'interrupted'].includes(r.status) && r.step === 'render') {
+      videoPane.appendChild(hintEl(`✗ render ${r.status}: ${r.error || ''}`));
+      const re = document.createElement('button'); re.className = 'prod'; re.textContent = '↻ retry render (~$0.75)';
+      re.style.alignSelf = 'flex-start';
+      re.onclick = async () => {
+        re.disabled = true;
+        await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'retry' }) });
+        await refreshJokes(); renderStage(); ensurePolling();
+      };
+      const bk = document.createElement('button'); bk.textContent = '← back to stills';
+      bk.style.alignSelf = 'flex-start';
+      bk.onclick = async () => {
+        bk.disabled = true;
+        await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'back' }) });
+        await refreshJokes(); setStage('image');
+      };
+      videoPane.append(re, bk);
+    }
+    if (r.status === 'awaiting_publish') {
+      const a = document.createElement('a'); a.className = 'watch'; a.href = r.clipPreview; a.target = '_blank'; a.textContent = '▶ watch the take';
+      const br = document.createElement('div'); br.className = 'rrow';
+      const pub = document.createElement('button'); pub.className = 'prod'; pub.textContent = 'publish to gallery';
+      const back = document.createElement('button'); back.textContent = '← back to stills';
+      back.title = 'scrap this take, keep the stills';
+      const bin = document.createElement('button'); bin.className = 'del'; bin.textContent = 'bin it';
+      br.append(pub, back, bin);
+      videoPane.append(a, br);
+      back.onclick = async () => {
+        back.disabled = true;
+        await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'back' }) });
+        await refreshJokes(); setStage('image');
+      };
+      pub.onclick = async () => {
+        pub.disabled = true;
+        await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'publish' }) });
+        await refreshJokes(); renderStage(); ensurePolling();
+      };
+      bin.onclick = async () => {
+        if (!confirm('bin this take? it stays off the gallery')) return;
+        await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'reject' }) });
+        await refreshJokes(); setStage('image');
+      };
+    }
+    if (r.status === 'done') {
+      videoPane.appendChild(hintEl('✓ live in the gallery — locked'));
+      const a = document.createElement('a'); a.className = 'watch'; a.href = '/clips'; a.target = '_blank'; a.textContent = 'see it on the wall ↗';
+      const nx = document.createElement('button'); nx.textContent = 'next joke →';
+      nx.style.alignSelf = 'flex-start';
+      nx.onclick = () => { currentId = null; localStorage.removeItem('prodJoke'); setStage('image'); };
+      videoPane.append(a, nx);
+      if (unlocked.has(j.id)) {
+        const ur = document.createElement('div'); ur.className = 'rrow';
+        const un = document.createElement('button'); un.className = 'del'; un.textContent = 'unpublish (pull off the wall)';
+        const rl = document.createElement('button'); rl.textContent = '🔓 lock again';
+        ur.append(un, rl);
+        videoPane.appendChild(ur);
+        un.onclick = async () => {
+          if (!confirm('pull this clip off the gallery? it goes back to review')) return;
+          un.disabled = true;
+          await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'unpublish' }) });
+          await refreshJokes(); renderStage(); ensurePolling();
+        };
+        rl.onclick = () => { unlocked.delete(j.id); renderStage(); };
+      } else {
+        videoPane.appendChild(lockRow(j, renderStage));
+      }
+    }
   }
-  renderPolls.delete(j.id);
-  loadBalance();
+  // other takes parked at this step
+  const others = (jokesCache?.accepted || []).filter(x => x.id !== currentId && atVideoStep(x.render));
+  if (others.length) {
+    videoPane.appendChild(hintEl('also at the video step:'));
+    const pl = document.createElement('div'); pl.className = 'picklist';
+    for (const x of others) {
+      const row = document.createElement('div'); row.className = 'pickrow';
+      row.innerHTML = `<span></span><b>${x.render.status === 'awaiting_publish' ? 'review' : '⏳'}</b>`;
+      row.querySelector('span').textContent = x.text;
+      row.onclick = () => startProduction(x.id);
+      pl.appendChild(row);
+    }
+    videoPane.appendChild(pl);
+  }
+}
+
+let pollTimer = null;
+function ensurePolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    const busy = currentId || (jokesCache?.accepted || []).some(x => x.render && RENDER_ACTIVE.has(x.render.status));
+    if (!busy) { clearInterval(pollTimer); pollTimer = null; return; }
+    const prevSig = sigOf(currentJoke());
+    await refreshJokes();
+    const j = currentJoke();
+    if (sigOf(j) === prevSig) return;
+    if (j?.render?.status === 'awaiting_scene') setStage('image');       // gate needs you
+    else if (j?.render?.status === 'awaiting_publish') setStage('video'); // gate needs you
+    else renderStage();
+  }, 5000);
 }
 
 function startVaultEdit(row, j) {
@@ -666,6 +904,10 @@ document.getElementById('logout').onclick = async () => {
 };
 
 loadTranscript();
+refreshJokes().then(() => {
+  const j = currentJoke();
+  if (j && j.render && RENDER_ACTIVE.has(j.render.status)) startProduction(j.id); // pick up where we left off
+});
 loadBalance();
 </script>
 </body>

@@ -30,7 +30,20 @@
       "Exec(node)",
       "Exec(npm init)",
       "Exec(strings)",
-      "Exec(pkill)"
+      "Exec(pkill)",
+      "Exec(git)",
+      "Exec(afinfo)",
+      "Exec(mdls)",
+      "Exec(cd)",
+      "Exec(lsof)",
+      "Exec(kill)",
+      "Exec(tail)",
+      "Exec(seq)",
+      "Exec(rsync)",
+      "Exec($RSH)",
+      "Exec(break)",
+      "Exec(grep)",
+      "Exec(md5)"
     ]
   }
 }

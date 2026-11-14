@@ -709,6 +709,36 @@ app.post('/api/jokes/render-action', (req, res) => {
     saveRenderJobs();
     return res.json({ ok: true });
   }
+  // walk backwards: scrap the take, keep the stills
+  if (action === 'back') {
+    const ok = job.status === 'awaiting_publish' || (['error', 'interrupted'].includes(job.status) && job.step === 'render');
+    if (!ok) return res.status(409).json({ error: 'can only step back from the video step' });
+    delete job.pick; delete job.sceneUrl; delete job.clipPreview; delete job.error;
+    job.status = 'awaiting_scene';
+    saveRenderJobs();
+    return res.json({ ok: true });
+  }
+  // rerun whichever step died
+  if (action === 'retry') {
+    if (job.status !== 'error' && job.status !== 'interrupted') return res.status(409).json({ error: 'nothing to retry' });
+    delete job.error;
+    job.status = 'running'; saveRenderJobs();
+    const again = job.step === 'render' ? toPublishGate(job, joke)
+      : jobScenes(job).then(() => { if (!cancelled(job)) job.status = 'awaiting_scene'; saveRenderJobs(); });
+    again.catch(e => failJob(job, e));
+    return res.json({ ok: true });
+  }
+  // unpublish a live clip — pulls it off the wall, lands back at review
+  if (action === 'unpublish') {
+    if (job.status !== 'done' || !job.clipId) return res.status(409).json({ error: 'nothing published to unpublish' });
+    const clips = JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'));
+    fs.writeFileSync(CLIPS_JSON, JSON.stringify(clips.filter(c => c.id !== job.clipId), null, 2));
+    const hit = findInStores(jokeId);
+    if (hit) { delete hit.list[hit.i].produced; delete hit.list[hit.i].clip; stores[hit.name].save(hit.list); }
+    job.status = 'awaiting_publish';
+    saveRenderJobs();
+    return res.json({ ok: true });
+  }
   res.status(400).json({ error: 'unknown action' });
 });
 
