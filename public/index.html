@@ -369,7 +369,14 @@ function renderVault() {
     row.appendChild(txt);
     const btns = document.createElement('div');
     btns.className = 'vbtns';
-    const mk = (label, cls, fn) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; btns.appendChild(b); };
+    const mk = (label, cls, fn) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; btns.appendChild(b); return b; };
+    const hearBtn = mk('🔊', '', async () => {
+      hearBtn.textContent = '…';
+      const r = await fetch('/api/jokes/speak', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id}) });
+      const d = await r.json();
+      hearBtn.textContent = '🔊';
+      if (d.audioUrl) new Audio(d.audioUrl).play().catch(() => {});
+    });
     const move = async to => { await fetch('/api/jokes/move', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:j.id, to}) }); loadVault(); loadCounts(); };
     if (vaultTab === 'accepted') {
       mk(j.produced ? 'unmark produced' : '✓ produced', 'prod', async () => {

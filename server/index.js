@@ -265,7 +265,7 @@ const findInStores = id => {
 };
 const norm = s => s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const seenSet = () => new Set([...readJsonl(ACCEPTED_F), ...readJsonl(REJECTED_F)].map(j => norm(j.text)));
-const findJoke = id => [...loadPending(), ...readJsonl(ACCEPTED_F)].find(j => j.id === id);
+const findJoke = id => { const hit = findInStores(id); return hit ? hit.list[hit.i] : null; };
 
 app.get('/api/jokes', (req, res) => res.json({
   accepted: readJsonl(ACCEPTED_F),
@@ -377,9 +377,8 @@ app.post('/api/jokes/speak', async (req, res) => {
     const audioFile = `joke-${joke.id}.mp3`;
     fs.writeFileSync(path.join(JF_AUDIO, audioFile), await ng.speak(joke.text, MODELS.tts, TTS_VOICE));
     joke.audio = `/joke-audio/${audioFile}`;
-    const pending = loadPending();
-    const i = pending.findIndex(j => j.id === joke.id);
-    if (i !== -1) { pending[i] = joke; savePending(pending); }
+    const hit = findInStores(joke.id);
+    if (hit) { hit.list[hit.i].audio = joke.audio; stores[hit.name].save(hit.list); }
     res.json({ audioUrl: joke.audio });
   } catch (e) {
     console.error(e);
