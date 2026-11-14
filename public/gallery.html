@@ -23,8 +23,8 @@
   .vcount .u { color:#3ddc84; } .vcount .d { color:#e2483d; }
   #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center; z-index:10; padding:16px; }
   #lightbox.open { display:flex; }
-  #lbCard { width:100%; max-width:400px; max-height:100%; overflow-y:auto; background:#13131c; border:1px solid #23232f; border-radius:16px; overflow-x:hidden; }
-  #lbCard video { width:100%; display:block; background:#000; }
+  #lbCard { max-width:92vw; max-height:92vh; background:#13131c; border:1px solid #23232f; border-radius:16px; overflow:hidden; display:flex; flex-direction:column; }
+  #lbCard video { display:block; background:#000; width:auto; height:auto; max-width:92vw; max-height:62vh; margin:0 auto; }
   #lbMeta { padding:14px 16px; }
   #lbJoke { font-size:1rem; line-height:1.5; margin:0 0 10px; }
   #lbDate { font-size:.72rem; color:#666; margin-bottom:10px; }
