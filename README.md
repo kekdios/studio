@@ -1,25 +1,23 @@
 # ReelEnder Studio
 
-**A film studio where the entire crew is software — you're the director with final cut.**
+**An AI joke factory. One character, one joke a day, posted everywhere.**
 
-Describe a movie in one sentence. ReelEnder Studio writes the script, designs the characters, shoots every scene, casts the voices, mixes the sound, and edits the final cut — then hands you an itemized receipt for what every shot cost. You never touch a tool; you make creative decisions at a handful of checkpoints, and the app does everything in between.
+Jacob tells a daily joke on social media — always the same guy, same clothes, same voice. An AI scout hunts the internet for the funniest short jokes; you hear each one and keep or toss it; accepted jokes get voiced, turned into a short vertical video of Jacob, and posted. Simple loop, thousands of jokes.
 
-Live (eventually) at [reelender.com](https://reelender.com).
+Live at [reelender.com](https://reelender.com) — and the public clip gallery at [reelender.com/clips](https://reelender.com/clips).
 
 ## How it works
 
-- **You collaborate.** Start in the writers' room — develop the idea with the AI in conversation, shape the story together, then lock the script.
-- **You approve at the checkpoints.** Shot list → character designs → rough cut → dailies → voices → the mix → final cut. The app cannot spend money past a checkpoint you haven't approved.
-- **The app produces.** It casts the right AI model for each job via the [nano-gpt](https://nano-gpt.com) API — one model for landscapes, one for crowds, one for keeping faces consistent, one for voices, one for sound — submits the work, waits for renders, retries failures, and keeps the books.
-- **You get the film.** Plus a vertical cut for Shorts/TikTok, a thumbnail, subtitles, and a receipt showing what every shot cost.
+- **The joke room** (sign-in required) — voice-first curation: talk to the scout, or tap to get a batch of joke cards. Every card: **hear it / keep / toss**. Kept and tossed jokes are filed forever so nothing repeats.
+- **The factory** — an accepted joke is read aloud in Jacob's voice, placed in a setting, and rendered as a short lip-synced vertical clip.
+- **The gallery** — a public page with every finished clip, the joke text, and links out to the TikTok/IG/YouTube posts.
 
 ## Status
 
-🚧 Early development — infrastructure provisioned, app being scaffolded. See [PLAN.md](PLAN.md) for the full roadmap and progress.
+🚧 Joke room and gallery are live; the joke→video pipeline is being built. See [PLAN.md](PLAN.md) for the full roadmap.
 
 ## Stack
 
-- Next.js + Express backend
-- nano-gpt API (chat, image, video, TTS, audio models)
-- ffmpeg for assembly, mix, and delivery formats
-- Self-hosted on a DigitalOcean droplet behind Caddy (HTTPS)
+- Express + vanilla-JS pages (no framework yet — the prototype became the product)
+- [nano-gpt](https://nano-gpt.com) API for everything: chat with web search, speech-to-text, text-to-speech (ElevenLabs voices routed through it), image/video models next
+- Self-hosted on a DigitalOcean droplet behind Caddy (HTTPS), email-code sign-in via Resend

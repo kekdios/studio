@@ -39,22 +39,25 @@ Your browser talks to the back office, the back office talks to the AI models. N
 - [x] **The scout** — searches the real web (`:online`), brings back joke candidates as cards: **hear it / keep / toss**. Shaped by whatever direction you give it in conversation.
 - [x] **The vault** — accepted + rejected lists, kept forever. Seen jokes never come back.
 - [x] **Keys and secrets** — all staged locally, gitignored, mirrored on the server. Nothing sensitive in the public repo.
+- [x] **The gallery** — public thumbnail wall at `/clips`; tap to play, joke text + social links under each video.
+- [x] **Jacob locked** — three turnaround photos + written character sheet staged; voice is your ElevenLabs voice (same as the scout's).
+- [x] **Phone-ready** — room, login, and gallery all responsive; voice input works on iOS.
 
 ## The build phases
 
 ### Phase 1 — The joke room ✅ *(live)*
 Voice conversation, OTP login, scout button, joke cards, the vault, web search. Done and on your phone.
 
-### Phase 2 — Lock Jacob *(next)*
+### Phase 2 — Lock Jacob ✅
 The whole product depends on Jacob being the same Jacob every day: one face, one outfit, one voice. Done: three turnaround references staged in `projects/joke-factory/jacob/` (front, left, right) plus a written character sheet — same grey hoodie/orange top/vest/cargo shorts/blue leggings/neon runners. Voice locked too: Jacob speaks with your ElevenLabs voice — the same one the scout uses. These become the references every video is built from.
 
-### Phase 3 — The joke machine
+### Phase 3 — The joke machine *(next)*
 The repeatable loop for every accepted joke: joke text → Jacob's voice reads it → a video model puts Jacob in a setting, lip-synced to the audio → a short clip ready for social. Same pipeline every time; only the joke and the backdrop change. The voice half is already working — this phase is the video half plus assembly.
 
 ### Phase 4 — Post it
 Vertical format for TikTok/Reels/Shorts (our target is 716×1284, ~7–9s — Jacob's real clip size), captions burned in (jokes land better muted), a consistent intro/outro beat. Manual posting at first; social APIs later if it earns its keep.
 
-**The gallery** — a public page (no login) at reelender.com where anyone can watch every finished Jacob clip, read the joke text under the video, and follow the links out to the TikTok/IG/YouTube posts. The vault becomes a back catalog fans can binge; socials get a canonical home to link back to.
+**The gallery** ✅ — live at `reelender.com/clips`, no login: a thumbnail wall of every finished clip. Tap a tile and the video plays with the joke text and social links underneath (TikTok/IG/YouTube/X buttons appear as clips get posted). The vault becomes a back catalog fans can binge.
 
 ### Phase 5 — The accountant *(mostly done)*
 Every call already logs its cost and the nano-gpt balance shows in the room. Remaining: per-run and monthly caps so a runaway pipeline can't surprise you.
