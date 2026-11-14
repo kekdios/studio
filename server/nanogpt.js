@@ -57,10 +57,25 @@ async function speak(text, model, voice) {
     throw new Error(`speak ${res.status}: ${err.slice(0, 300)}`);
   }
   const ct = res.headers.get('content-type') || '';
-  if (ct.includes('application/json')) {
-    // some providers return { audioUrl } instead of raw audio
-    const data = await res.json();
-    const audio = await fetch(data.audioUrl);
+
+  let audioUrl = null;
+  if (res.status === 202 || (ct.includes('application/json') && !audioUrl)) {
+    // async model: poll status until completed
+    const ticket = await res.json();
+    if (ticket.audioUrl) {
+      audioUrl = ticket.audioUrl;
+    } else {
+      const qs = new URLSearchParams({ runId: ticket.runId, model: ticket.model });
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const st = await fetch(`${BASE}/api/tts/status?${qs}`, { headers: { 'x-api-key': apiKey() } });
+        const s = await st.json();
+        if (s.status === 'completed' && s.audioUrl) { audioUrl = s.audioUrl; break; }
+        if (s.status === 'error') throw new Error(`tts job failed: ${s.error || 'unknown'}`);
+      }
+    }
+    if (!audioUrl) throw new Error('tts polling timed out');
+    const audio = await fetch(audioUrl);
     return Buffer.from(await audio.arrayBuffer());
   }
   return Buffer.from(await res.arrayBuffer());

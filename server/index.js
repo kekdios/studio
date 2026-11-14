@@ -28,6 +28,7 @@ const ALLOWED_FILE = path.join(ROOT, '.secrets', 'allowed-emails');
 const readSecretFile = p => { try { return fs.readFileSync(p, 'utf8').trim(); } catch { return ''; } };
 const allowedEmails = () => readSecretFile(ALLOWED_FILE).split('\n').map(s => s.trim().toLowerCase()).filter(Boolean);
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
+const TTS_VOICE = readSecretFile(path.join(ROOT, '.secrets', MODELS.tts_voice_secret || '')) || MODELS.tts_voice;
 let sessions = new Set();
 try { sessions = new Set(JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'))); } catch {}
 const saveSessions = () => fs.writeFileSync(SESSIONS_FILE, JSON.stringify([...sessions]));
@@ -201,7 +202,7 @@ app.post('/api/turn', async (req, res) => {
     const replyText = reply.text.trim();
 
     const audioFile = `reply-${Date.now()}.mp3`;
-    fs.writeFileSync(path.join(AUDIO_DIR, audioFile), await ng.speak(replyText, MODELS.tts, MODELS.tts_voice));
+    fs.writeFileSync(path.join(AUDIO_DIR, audioFile), await ng.speak(replyText, MODELS.tts, TTS_VOICE));
     const audioUrl = `/audio/${audioFile}`;
 
     appendTurn('assistant', replyText, { audio: audioUrl, cost: reply.cost });
@@ -284,7 +285,7 @@ app.post('/api/jokes/speak', async (req, res) => {
     if (!joke) return res.status(404).json({ error: 'joke not found' });
     if (joke.audio) return res.json({ audioUrl: joke.audio });
     const audioFile = `joke-${joke.id}.mp3`;
-    fs.writeFileSync(path.join(JF_AUDIO, audioFile), await ng.speak(joke.text, MODELS.tts, MODELS.tts_voice));
+    fs.writeFileSync(path.join(JF_AUDIO, audioFile), await ng.speak(joke.text, MODELS.tts, TTS_VOICE));
     joke.audio = `/joke-audio/${audioFile}`;
     const pending = loadPending();
     const i = pending.findIndex(j => j.id === joke.id);
