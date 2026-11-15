@@ -440,7 +440,7 @@ async function loadVault() {
   renderVault();
 }
 
-const RENDER_ACTIVE = new Set(['running', 'awaiting_scene', 'awaiting_publish']);
+const RENDER_ACTIVE = new Set(['running', 'awaiting_scene', 'awaiting_publish', 'awaiting_fallback']);
 
 // pipeline tracker: voice → stills → clip → live (idx = the chip that's active)
 function stageBar(j) {
@@ -449,7 +449,7 @@ function stageBar(j) {
   if (j.produced || (r && r.status === 'done')) idx = 4;
   else if (r) {
     if (r.status === 'awaiting_publish' || (r.status === 'running' && r.step === 'publish')) idx = 3;
-    else if (r.status === 'running' && r.step === 'render') idx = 2;
+    else if (r.status === 'awaiting_fallback' || (r.status === 'running' && r.step === 'render')) idx = 2;
     else if (r.status === 'awaiting_scene' || (r.status === 'running' && r.step === 'stills')) idx = 1;
     else if (r.status === 'running') idx = 0;
   }
@@ -473,6 +473,7 @@ function statusLine(j) {
   if (r.status === 'running') wrap.textContent = `⏳ ${r.step}…`;
   else if (r.status === 'awaiting_scene') wrap.textContent = 'waiting on you: pick a still';
   else if (r.status === 'awaiting_publish') wrap.textContent = 'waiting on you: review the take';
+  else if (r.status === 'awaiting_fallback') wrap.textContent = 'waiting on you: read is short — use the backup?';
   else if (r.status === 'done') { wrap.classList.add('ok'); wrap.innerHTML = `✓ live — <a href="/clips" target="_blank" style="color:#3ddc84;">gallery ↗</a>`; }
   else if (r.status === 'rejected') wrap.textContent = 'binned';
   else if (r.status === 'cancelled') wrap.textContent = 'cancelled';
@@ -559,7 +560,7 @@ function currentJoke() {
     .find(j => j.id === currentId) || null;
 }
 const sigOf = j => j?.render ? `${j.render.status}:${j.render.step || ''}:${(j.render.scenes || []).length}` : '';
-const atVideoStep = r => r && (r.status === 'awaiting_publish' || r.status === 'done'
+const atVideoStep = r => r && (r.status === 'awaiting_publish' || r.status === 'awaiting_fallback' || r.status === 'done'
   || (r.status === 'running' && ['render', 'publish'].includes(r.step))
   || (['error', 'interrupted'].includes(r.status) && r.step === 'render'));
 
@@ -577,7 +578,7 @@ function updateNav() {
   let imgDot = false, vidDot = false;
   for (const x of (jokesCache?.accepted || [])) {
     if (x.render?.status === 'awaiting_scene') imgDot = true;
-    if (x.render?.status === 'awaiting_publish') vidDot = true;
+    if (x.render?.status === 'awaiting_publish' || x.render?.status === 'awaiting_fallback') vidDot = true;
   }
   for (const [s, on] of [['image', imgDot], ['video', vidDot]]) {
     const tab = document.querySelector(`.stab[data-s="${s}"]`);
@@ -905,9 +906,32 @@ function renderVideo() {
       };
       videoPane.append(re, bk);
     }
+    if (r.status === 'awaiting_fallback') {
+      const est = (Math.max(3, r.audioSecs || 0) * 0.08).toFixed(2);
+      videoPane.appendChild(hintEl(`this read is ~${r.audioSecs}s — OmniHuman needs 4s or more. Make the clip with the backup model (${r.avatarModel || 'longcat-avatar-1.5'}, ~$${est}) instead?`));
+      videoPane.appendChild(hintEl('or edit the joke in the vault to lengthen the read, then retry — the stills are kept'));
+      const br = document.createElement('div'); br.className = 'rrow';
+      const use = document.createElement('button'); use.className = 'prod'; use.textContent = 'use the backup';
+      const bk = document.createElement('button'); bk.textContent = '← back to stills';
+      bk.title = 'scrap this take attempt, keep the stills';
+      br.append(use, bk);
+      videoPane.appendChild(br);
+      const lockRow = () => { use.disabled = bk.disabled = true; };
+      use.onclick = async () => {
+        lockRow();
+        const d = await (await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'use-fallback' }) })).json();
+        if (d?.error) { use.disabled = bk.disabled = false; videoPane.appendChild(hintEl(d.error)); return; }
+        await refreshJokes(); renderStage(); ensurePolling();
+      };
+      bk.onclick = async () => {
+        lockRow();
+        await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action: 'back' }) });
+        await refreshJokes(); setStage('image');
+      };
+    }
     if (r.status === 'awaiting_publish') {
       const dur = renderDur(r);
-      if (dur) videoPane.appendChild(hintEl(`rendered in ${dur}`));
+      if (dur) videoPane.appendChild(hintEl(`rendered in ${dur}${r.viaBackup ? ` · ${r.avatarModel} (short-read backup)` : ''}`));
       const v = document.createElement('video');
       v.className = 'take'; v.src = r.clipPreview; v.controls = true; v.playsInline = true; v.preload = 'metadata';
       videoPane.appendChild(v);
@@ -997,7 +1021,7 @@ function ensurePolling() {
     const j = currentJoke();
     if (sigOf(j) === prevSig) return;
     if (j?.render?.status === 'awaiting_scene') setStage('image');       // gate needs you
-    else if (j?.render?.status === 'awaiting_publish') setStage('video'); // gate needs you
+    else if (j?.render?.status === 'awaiting_publish' || j?.render?.status === 'awaiting_fallback') setStage('video'); // gate needs you
     else renderStage();
   }, 5000);
 }

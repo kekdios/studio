@@ -45,7 +45,9 @@
       "Exec(grep)",
       "Exec(md5)",
       "Exec(time curl)",
-      "Exec(scutil)"
+      "Exec(scutil)",
+      "Exec(open)",
+      "Exec(sed)"
     ]
   }
 }

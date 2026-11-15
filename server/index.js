@@ -430,6 +430,7 @@ app.post('/api/jokes/edit', (req, res) => {
   if (!hit) return res.status(404).json({ error: 'joke not found' });
   hit.list[hit.i].text = text.trim();
   delete hit.list[hit.i].audio; // cached audio no longer matches the edited text
+  fs.rmSync(path.join(JF_AUDIO, `joke-${id}.mp3`), { force: true }); // drop the stale take or the pipeline reuses it
   stores[hit.name].save(hit.list);
   res.json({ ok: true, joke: hit.list[hit.i] });
 });
@@ -552,6 +553,7 @@ const saveRenderJobs = () => {
 try {
   for (const [k, j] of Object.entries(JSON.parse(fs.readFileSync(RENDER_JOBS_F, 'utf8')))) {
     if (j.status === 'running') j.status = 'interrupted'; // server restarted mid-render
+    if (j.error) j.error = friendlyError({ message: j.error }, j); // re-translate stored raw dumps
     renderJobs.set(k, j);
   }
 } catch {}
@@ -565,9 +567,12 @@ function makePoster(mp4, jpg) {
 }
 
 const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-const ACTIVE_STATUSES = new Set(['running', 'awaiting_scene', 'awaiting_publish']);
+const ACTIVE_STATUSES = new Set(['running', 'awaiting_scene', 'awaiting_publish', 'awaiting_fallback']);
 const jobDir = job => { const d = path.join(RENDERS_DIR, job.id); fs.mkdirSync(d, { recursive: true }); return d; };
 const jobAudioPath = joke => path.join(JF_AUDIO, `joke-${joke.id}.mp3`);
+const audioSecs = joke => { try { return fs.statSync(jobAudioPath(joke)).size * 8 / 128000; } catch { return 0; } };
+// OmniHuman's floor is 4s — shorter reads need the LongCat backup, and that's the director's call
+const OMNI_MIN_SECS = 4;
 
 async function jobVoice(job, joke) {
   job.step = 'voice'; job.stepStarted = new Date().toISOString(); saveRenderJobs();
@@ -577,8 +582,8 @@ async function jobVoice(job, joke) {
     const hit = findInStores(joke.id);
     if (hit) { hit.list[hit.i].audio = `/joke-audio/joke-${joke.id}.mp3`; stores[hit.name].save(hit.list); }
   }
-  if (fs.statSync(audioPath).size * 8 / 128000 < 4)
-    throw new Error('joke reads under 4 seconds — too short for the avatar model; add a beat with [pause]');
+  if (fs.statSync(audioPath).size * 8 / 128000 < 2)
+    throw new Error('joke reads under 2 seconds — too short even for the backup avatar; add a beat with [pause]');
 }
 
 // 4 candidate stills from the same prompt — pick one at the gate
@@ -600,21 +605,32 @@ async function jobScenes(job) {
 }
 
 async function jobRender(job, joke) {
-  job.step = 'render'; job.stepStarted = job.renderStarted = new Date().toISOString(); saveRenderJobs();
-  const v = await ng.video({
-    model: MODELS.avatar_video,
+  job.step = 'render'; job.stepStarted = job.renderStarted = new Date().toISOString();
+  const audioPath = jobAudioPath(joke);
+  const secs = audioSecs(joke);
+  const useFallback = secs < OMNI_MIN_SECS && !!MODELS.avatar_video_fallback;
+  job.avatarModel = useFallback ? MODELS.avatar_video_fallback : MODELS.avatar_video;
+  job.viaBackup = useFallback || undefined;
+  if (useFallback) rlog(`${job.id} backup render: ${job.avatarModel} (read ~${secs.toFixed(1)}s)`);
+  saveRenderJobs();
+  const doVideo = model => ng.video({
+    model,
     prompt: job.motion,
     imageDataUrl: ng.dataUrl(path.join(jobDir(job), path.basename(job.sceneUrl))),
-    audioDataUrl: ng.dataUrl(jobAudioPath(joke)),
+    audioDataUrl: ng.dataUrl(audioPath),
+    // LongCat takes a resolution select; OmniHuman ignores extras — only send when set for the fallback
+    ...(model === MODELS.avatar_video_fallback && MODELS.avatar_fallback_resolution
+      ? { resolution: MODELS.avatar_fallback_resolution } : {}),
   }, {
     onTick: s => { // surface whatever the provider reports (queue/progress/eta)
       const d = s.data || s;
       if (!job.runId && (s.requestId || d.requestId)) { job.runId = s.requestId || d.requestId; rlog(`${job.id} video submitted runId=${job.runId}`); }
-      if (job._prov !== d.status) { rlog(`${job.id} provider: ${d.status}`); job._prov = d.status; }
+      if (job._prov !== d.status) { rlog(`${job.id} provider: ${d.status} [${job.avatarModel}]`); job._prov = d.status; }
       job.provider = { status: d.status, progress: d.progress ?? null, eta: d.estimatedTimeRemaining ?? null };
       saveRenderJobs();
     },
   });
+  const v = await doVideo(job.avatarModel);
   fs.writeFileSync(path.join(jobDir(job), 'final.mp4'), v.buffer);
   job.renderDone = new Date().toISOString();
   job.runId = v.runId;
@@ -657,7 +673,35 @@ const rlog = msg => {
 };
 app.get('/api/jokes/render-log', (req, res) => res.json(RENDER_LOG.slice(-60)));
 
-const failJob = (job, e) => { console.error('render failed:', e); rlog(`${job.id} ERROR ${e.message}`); job.status = 'error'; job.error = e.message; saveRenderJobs(); };
+// turn provider JSON dumps + raw throws into something the director can act on.
+// raw message stays in the log; job.error (what the UI shows) gets the readable version.
+function friendlyError(e, job) {
+  let m = e?.message || String(e);
+  const brace = m.match(/\{[\s\S]*\}/)?.[0]; // unwrap provider payloads like video 400: {"error":"..."}
+  if (brace) {
+    try {
+      const o = JSON.parse(brace);
+      const inner = o.error?.message || o.error || o.message;
+      if (typeof inner === 'string' && inner) m = inner;
+    } catch {}
+  }
+  if (/audio must be between|under 4 seconds|too short for the avatar/i.test(m)) {
+    let secs = null;
+    try { secs = Math.round(fs.statSync(path.join(JF_AUDIO, `joke-${job.jokeId}.mp3`)).size * 8 / 128000 * 10) / 10; } catch {}
+    if (secs != null && secs > 300)
+      return `the voice read is too long for the avatar model (max 300s, this one is ~${secs}s). Shorten the joke text, then retry.`;
+    return `the voice read is too short for the avatar model (needs 4s+, this one is ~${secs ?? '?'}s). Edit the joke to add a beat — a [pause] or another line — then retry; your stills are kept.`;
+  }
+  if (/balance|insufficient|payment|402/i.test(m))
+    return 'nano-gpt balance is too low for this step — top up, then retry.';
+  if (/polling timed out/i.test(m))
+    return "the provider didn't finish in time — it's probably busy. Retry in a minute; nothing was published.";
+  if (/^tts |tts job|speak \d/i.test(m)) return `voice read failed: ${m}`;
+  if (/imageGen|stills failed/i.test(m)) return `scene stills failed: ${m}`;
+  return m;
+}
+
+const failJob = (job, e) => { console.error('render failed:', e); rlog(`${job.id} ERROR ${e.message}`); job.status = 'error'; job.error = friendlyError(e, job); saveRenderJobs(); };
 const cancelled = job => job.status === 'cancelled';
 
 // voice + 4 stills, then stop and wait for the director
@@ -677,12 +721,30 @@ async function toSceneGate(job, joke) {
 // avatar render, then stop and wait for publish/bin
 async function toPublishGate(job, joke) {
   try {
+    job.audioSecs = Math.round(audioSecs(joke) * 10) / 10;
+    if (job.audioSecs < OMNI_MIN_SECS && MODELS.avatar_video_fallback && !job.allowBackup) {
+      job.status = 'awaiting_fallback'; // director's call before spending on the backup
+      job.avatarModel = MODELS.avatar_video_fallback;
+      rlog(`${job.id} gate: read ~${job.audioSecs}s is under OmniHuman's ${OMNI_MIN_SECS}s floor — fallback decision`);
+      saveRenderJobs();
+      return;
+    }
     rlog(`${job.id} render start (scene ${job.pick != null ? job.pick + 1 : '?'})`);
     await jobRender(job, joke);
     if (cancelled(job)) return;
     job.status = 'awaiting_publish';
     rlog(`${job.id} gate: awaiting publish${job.renderDone && job.renderStarted ? ` (rendered in ${Math.round((Date.parse(job.renderDone) - Date.parse(job.renderStarted)) / 1000)}s)` : ''}`);
-  } catch (e) { return failJob(job, e); }
+  } catch (e) {
+    // our size-estimate said ≥4s but OmniHuman disagreed — same decision, ask the director
+    if (MODELS.avatar_video_fallback && /audio must be between/i.test(e.message) && !job.allowBackup) {
+      job.status = 'awaiting_fallback';
+      job.avatarModel = MODELS.avatar_video_fallback;
+      rlog(`${job.id} OmniHuman rejected the audio length — fallback decision`);
+      saveRenderJobs();
+      return;
+    }
+    return failJob(job, e);
+  }
   saveRenderJobs();
 }
 
@@ -803,9 +865,18 @@ app.post('/api/jokes/render-action', (req, res) => {
     saveRenderJobs();
     return res.json({ ok: true });
   }
+  // director consents to the backup avatar for a short read
+  if (action === 'use-fallback') {
+    if (job.status !== 'awaiting_fallback') return res.status(409).json({ error: 'no fallback decision pending' });
+    job.allowBackup = true;
+    job.status = 'running'; saveRenderJobs();
+    toPublishGate(job, joke);
+    return res.json({ ok: true });
+  }
   // walk backwards: scrap the take, keep the stills
   if (action === 'back') {
-    const ok = job.status === 'awaiting_publish' || (['error', 'interrupted'].includes(job.status) && job.step === 'render');
+    const ok = job.status === 'awaiting_publish' || job.status === 'awaiting_fallback'
+      || (['error', 'interrupted'].includes(job.status) && job.step === 'render');
     if (!ok) return res.status(409).json({ error: 'can only step back from the video step' });
     delete job.pick; delete job.sceneUrl; delete job.clipPreview; delete job.error;
     job.status = 'awaiting_scene';
@@ -817,8 +888,7 @@ app.post('/api/jokes/render-action', (req, res) => {
     if (job.status !== 'error' && job.status !== 'interrupted') return res.status(409).json({ error: 'nothing to retry' });
     delete job.error;
     job.status = 'running'; saveRenderJobs();
-    const again = job.step === 'render' ? toPublishGate(job, joke)
-      : jobScenes(job).then(() => { if (!cancelled(job)) job.status = 'awaiting_scene'; saveRenderJobs(); });
+    const again = job.step === 'render' ? toPublishGate(job, joke) : toSceneGate(job, joke);
     again.catch(e => failJob(job, e));
     return res.json({ ok: true });
   }
