@@ -47,7 +47,8 @@
       "Exec(time curl)",
       "Exec(scutil)",
       "Exec(open)",
-      "Exec(sed)"
+      "Exec(sed)",
+      "Exec(wc)"
     ]
   }
 }

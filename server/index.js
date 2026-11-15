@@ -46,7 +46,7 @@ app.use((req, res, next) => {
     || req.path === '/api/otp/request' || req.path === '/api/otp/verify'
     || req.path === '/clips' || req.path === '/api/clips' || req.path === '/api/clips/vote'
     || req.path === '/reelenderlogo.png' || req.path === '/reelenderlogosq.png'
-    || req.path.startsWith('/clips-media/');
+    || req.path.startsWith('/clips-media/') || req.path.startsWith('/share/');
   if (open) return next();
   const token = cookieToken(req);
   if (token && sessions.has(token)) return next();
@@ -423,6 +423,69 @@ app.post('/api/jokes/fetch', async (req, res) => {
   }
 });
 
+// --- experimental lab lane ---
+// pure retrieval, two modes:
+//   current — Grok mines recent "funniest tweets"/joke roundups (X-adjacent)
+//   deadpan — mines quote archives for Steven Wright + Mitch Hedberg one-liners
+// no rewriting: the card IS the found joke, verbatim, with attribution.
+const LAB_MODES = {
+  current: count =>
+    `Search the web and X/Twitter-adjacent sources for short jokes getting high engagement RIGHT NOW: recent "funniest tweets" roundups, viral joke threads, humor accounts — within the last ~4 weeks, the more recent the better.\n\n` +
+    `Pick ${count} that (a) work read ALOUD in 5–15 seconds — one or two sentences, no setup needing context, (b) are standalone (no thread, no image needed), (c) are clean enough for a general audience.\n\n` +
+    `Always return what you find — if you cannot verify engagement or exact wording, still return the closest recent jokes and say so in a "note" field. Never return an empty list.\n\n` +
+    `Return each joke VERBATIM — do not rewrite, improve, or clean up the wording. JSON only: {"note":"<any caveat, or null>","lines":[{"source":"<@handle or publication>","text":"<the joke exactly as published>"}]}`,
+  deadpan: count =>
+    `Search quote archives — Wikiquote, quote sites, fan transcripts, album/stand-up transcripts — for one-liners by STEVEN WRIGHT and MITCH HEDBERG. Both have large documented bodies of work online.\n\n` +
+    `Pick ${count} jokes, roughly half from each comedian, favoring their less-quoted lines (skip "I used to do drugs. I still do, but I used to, too." — it's everywhere). Each must work read ALOUD in 5–15 seconds, standalone, clean enough for a general audience.\n\n` +
+    `Always return what you find — if sourcing is thin, still return the best-attributed lines and say so in a "note" field. Never return an empty list.\n\n` +
+    `Return each joke VERBATIM. JSON only: {"note":"<any caveat, or null>","lines":[{"comedian":"steven wright|mitch hedberg","source":"<site or special>","text":"<the joke exactly as performed>"}]}`,
+};
+async function labCards(count, mode = 'current') {
+  const prompt = (LAB_MODES[mode] || LAB_MODES.current)(count);
+  let reply;
+  for (let attempt = 0; attempt < 3; attempt++) { // grok :online occasionally returns blank
+    reply = await ng.chat([
+    { role: 'system', content:
+      `You are a joke researcher with web access. You retrieve REAL jokes, verbatim — you never write or improve them. ` +
+      `You always say plainly when sources are thin instead of inventing quotes.` },
+    { role: 'user', content: prompt },
+    ], MODELS.joke_lab || 'x-ai/grok-4.7:online');
+    if (/\{[\s\S]*\}/.test(reply.text || '')) break;
+  }
+  const m = reply.text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error(`lab returned no JSON${reply.text ? ': ' + reply.text.slice(0, 140) : ''}`);
+  const parsed = JSON.parse(m[0]);
+  const lines = (parsed.lines || []).filter(l => l?.text);
+  if (!lines.length) throw new Error(`lab found no jokes${parsed.note ? ': ' + parsed.note.slice(0, 140) : ''}`);
+  const pending = loadPending();
+  const batchSets = [];
+  const out = [];
+  for (const l of lines) {
+    const t = String(l.text).trim();
+    const cand = wordSet(t);
+    if (batchSets.some(s => jaccard(cand, s) >= 0.8)) continue;
+    batchSets.push(cand);
+    const j = { id: crypto.randomBytes(8).toString('hex'), text: t, ts: new Date().toISOString(),
+      lab: true, mechanism: l.comedian || mode, premise: l.premise || null,
+      source: [l.source, l.comedian].filter(Boolean).join(' · ') || null };
+    const sim = bestMatch(t);
+    if (sim) j.similar = sim;
+    pending.push(j); out.push(j);
+  }
+  savePending(pending);
+  return { jokes: out, dropped: lines.length - out.length, cost: reply.cost, note: parsed.note || null };
+}
+
+app.post('/api/jokes/lab', async (req, res) => {
+  try {
+    const count = Math.min(Math.max(parseInt(req.body?.count) || 4, 1), 8);
+    res.json(await labCards(count, req.body?.mode === 'deadpan' ? 'deadpan' : 'current'));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/jokes/edit', (req, res) => {
   const { id, text } = req.body || {};
   if (!id || typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'id and text required' });
@@ -430,9 +493,36 @@ app.post('/api/jokes/edit', (req, res) => {
   if (!hit) return res.status(404).json({ error: 'joke not found' });
   hit.list[hit.i].text = text.trim();
   delete hit.list[hit.i].audio; // cached audio no longer matches the edited text
-  fs.rmSync(path.join(JF_AUDIO, `joke-${id}.mp3`), { force: true }); // drop the stale take or the pipeline reuses it
+  // kill every artifact built from the old text — audio takes + any live render downstream
+  const invalidated = { audio: 0, render: false, unpublished: false };
+  for (const f of fs.readdirSync(JF_AUDIO)) {
+    if (f.startsWith(`joke-${id}`)) { fs.rmSync(path.join(JF_AUDIO, f), { force: true }); invalidated.audio++; }
+  }
+  const job = renderJobs.get(id);
+  if (job) {
+    invalidated.render = true;
+    for (const f of ['final.mp4', 'final-captioned.mp4', 'final-edited.mp4', 'final-edited-captioned.mp4'])
+      fs.rmSync(path.join(RENDERS_DIR, job.id, f), { force: true });
+    delete job.captionTemplate; delete job.captionOpts; delete job.editPrompt; delete job.workFile; delete job.ccFile;
+    delete job.clipPreview; delete job.runId; delete job.renderDone; delete job.error;
+    if (job.status === 'done' && job.clipId) { // pull the live clip(s) — they play the old text
+      const clips = JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'));
+      const dead = clips.filter(c => c.id === job.clipId || c.id === job.clipId + '-cc');
+      fs.writeFileSync(CLIPS_JSON, JSON.stringify(clips.filter(c => c.id !== job.clipId && c.id !== job.clipId + '-cc'), null, 2));
+      for (const d of dead) {
+        fs.rmSync(path.join(CLIPS_DIR, d.file), { force: true });
+        fs.rmSync(path.join(CLIPS_DIR, d.poster), { force: true });
+      }
+      delete hit.list[hit.i].produced; delete hit.list[hit.i].clip;
+      delete job.clipId; delete job.clipUrl;
+      invalidated.unpublished = true;
+    }
+    job.status = 'cancelled';
+    job.note = 'joke edited — downstream audio and video invalidated';
+    saveRenderJobs();
+  }
   stores[hit.name].save(hit.list);
-  res.json({ ok: true, joke: hit.list[hit.i] });
+  res.json({ ok: true, joke: hit.list[hit.i], invalidated });
 });
 
 app.post('/api/jokes/add', (req, res) => {
@@ -494,7 +584,7 @@ app.post('/api/jokes/speak', async (req, res) => {
     const joke = findJoke(req.body?.id);
     if (!joke) return res.status(404).json({ error: 'joke not found' });
     if (joke.audio) return res.json({ audioUrl: joke.audio });
-    const audioFile = `joke-${joke.id}.mp3`;
+    const audioFile = path.basename(jobAudioPath(joke));
     fs.writeFileSync(path.join(JF_AUDIO, audioFile), await ng.speak(joke.text, MODELS.tts, TTS_VOICE));
     joke.audio = `/joke-audio/${audioFile}`;
     const hit = findInStores(joke.id);
@@ -511,28 +601,45 @@ app.post('/api/jokes/speak', async (req, res) => {
 // (gate: publish or bin) -> clips/ + poster + clips.json + produced flag.
 const RENDERS_DIR = path.join(JF_DIR, 'renders');
 const RENDER_JOBS_F = path.join(RENDERS_DIR, 'jobs.json');
-const JACOB_FRONT = path.join(JF_DIR, 'jacob', 'jacob-front.png');
-const JACOB_LOOK = 'the man in the photo — keep his face, black beanie, grey zip-up hoodie over bright orange top, blue/black hydration vest, black cargo shorts, bright blue leggings, neon trail runners exactly identical';
+const JACOB_DIR = path.join(JF_DIR, 'jacob');
+const JACOB_FRONT = path.join(JACOB_DIR, 'jacob-front.png');
+const JACOB_FACE = 'the man in the photo — keep his face exactly identical';
+// wardrobe is compiled from the framing — a waist-up crop must never mention shoes
+const FRAMINGS = {
+  'full-body': {
+    must: 'black beanie, grey zip-up hoodie over bright orange top, blue/black hydration vest, black cargo shorts, bright blue leggings, neon trail runners',
+    shot: 'full-body head-to-toe shot — his neon trail runners clearly visible in frame',
+    never: '',
+  },
+  'waist-up': {
+    must: 'black beanie, grey zip-up hoodie over bright orange top, blue/black hydration vest',
+    shot: 'waist-up shot, his face about a third of the frame height, beanie fully on his head',
+    never: 'Do not show or mention anything below the waist — no shorts, leggings, or shoes.',
+  },
+};
 const ORIENTS = { vertical: '9:16', horizontal: '16:9' };
 const ORIENT_WORDS = { '9:16': 'vertical 9:16', '16:9': 'horizontal 16:9' };
 const DEFAULT_SETTING = 'a dim concrete multi-storey car park at night, lit by cold fluorescent strips';
 const DEFAULT_MOTION = 'The man tells the joke straight to camera, deadpan. Small natural head movements and one small hand gesture, static camera.';
-const scenePrompt = (setting, orient) =>
-  `Put ${JACOB_LOOK} standing in ${setting || DEFAULT_SETTING}. He faces the camera straight on, deadpan, full-body head-to-toe shot — his neon trail runners clearly visible in frame, cinematic realism, ${ORIENT_WORDS[orient] || ORIENT_WORDS['9:16']} framing.`;
+const scenePrompt = (setting, orient, framing = 'full-body') => {
+  const f = FRAMINGS[framing] || FRAMINGS['full-body'];
+  return `Put ${JACOB_FACE}, wearing ${f.must} exactly identical, standing in ${setting || DEFAULT_SETTING}. He faces the camera straight on, deadpan, ${f.shot}, cinematic realism, ${ORIENT_WORDS[orient] || ORIENT_WORDS['9:16']} framing.${f.never ? ' ' + f.never : ''}`;
+};
 
 // the producer brain drafts scene + motion from the joke itself; director edits before any spend
-async function aiPrompt(joke, settingHint, orient) {
+async function aiPrompt(joke, settingHint, orient, framing) {
   const model = MODELS.producer_brain.replace(/:online.*$/, '');
   const words = ORIENT_WORDS[orient] || ORIENT_WORDS['9:16'];
+  const f = FRAMINGS[framing] || FRAMINGS['full-body'];
   const r = await ng.chat([
     { role: 'system', content: `You write prompts for a recurring video character's daily joke clips.
 
 The character is LOCKED. Every "scene" prompt must begin with this exact identity clause:
-"Put the man in the photo — keep his face, black beanie, grey zip-up hoodie over bright orange top, blue/black hydration vest, black cargo shorts, bright blue leggings, neon trail runners exactly identical"
+"Put the man in the photo — keep his face exactly identical, wearing ${f.must} exactly identical"
 
 Output JSON only, no other text: {"scene": "...", "motion": "..."}
 
-scene: continue the identity clause with " standing in <SETTING THAT VISUALIZES THE JOKE>" — the place and objects the joke is ABOUT should appear around him (library shelves for a librarian joke, a shoe shop for a shoes joke). He faces the camera straight on, mid-delivery, deadpan. Always a full-body head-to-toe shot with his neon trail runners clearly visible. End with ", cinematic realism, ${words} framing." One paragraph, plain text, no quotes inside.
+scene: continue the identity clause with " standing in <SETTING THAT VISUALIZES THE JOKE>" — the place and objects the joke is ABOUT should appear around him (library shelves for a librarian joke, a shoe shop for a shoes joke). He faces the camera straight on, mid-delivery, deadpan. Frame: ${f.shot}.${f.never ? ' ' + f.never : ''} End with ", cinematic realism, ${words} framing." One paragraph, plain text, no quotes inside.
 
 motion: ONE short animation direction for an audio-driven talking-avatar model. He tells the joke deadpan to camera, plus ONE concrete gesture timed to a word or object in THIS joke (point at it, look down at it, hold it up, glance behind him). Small and natural, static camera. One or two sentences, plain text.` },
     { role: 'user', content: `Joke: ${joke.text}${settingHint ? `\nSetting the director suggested: ${settingHint} — use or adapt it.` : '\nPick whichever setting suits the joke best.'}` },
@@ -543,6 +650,15 @@ motion: ONE short animation direction for an audio-driven talking-avatar model. 
 }
 fs.mkdirSync(RENDERS_DIR, { recursive: true });
 app.use('/renders-media', express.static(RENDERS_DIR)); // authed: owner-only render artifacts
+
+// --- still bank: director-approved scenes, reused instead of regenerating Jacob daily ---
+const BANK_DIR = path.join(JACOB_DIR, 'still-bank');
+const BANK_JSON = path.join(BANK_DIR, 'bank.json');
+fs.mkdirSync(BANK_DIR, { recursive: true });
+app.use('/jacob-media', express.static(JACOB_DIR)); // authed: character refs + bank stills
+const loadBank = () => { try { return JSON.parse(fs.readFileSync(BANK_JSON, 'utf8')); } catch { return []; } };
+const saveBank = b => fs.writeFileSync(BANK_JSON, JSON.stringify(b, null, 1));
+const bankEntry = id => loadBank().find(b => b.id === id);
 
 const renderJobs = new Map(); // jokeId -> job
 const saveRenderJobs = () => {
@@ -569,10 +685,28 @@ function makePoster(mp4, jpg) {
 const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const ACTIVE_STATUSES = new Set(['running', 'awaiting_scene', 'awaiting_publish', 'awaiting_fallback']);
 const jobDir = job => { const d = path.join(RENDERS_DIR, job.id); fs.mkdirSync(d, { recursive: true }); return d; };
-const jobAudioPath = joke => path.join(JF_AUDIO, `joke-${joke.id}.mp3`);
-const audioSecs = joke => { try { return fs.statSync(jobAudioPath(joke)).size * 8 / 128000; } catch { return 0; } };
-// OmniHuman's floor is 4s — shorter reads need the LongCat backup, and that's the director's call
+// audio files are keyed by content hash — an edited joke can never collide with its stale take
+const audioHash = joke => crypto.createHash('sha256').update(`${joke.text}|${TTS_VOICE}|${MODELS.tts}`).digest('hex').slice(0, 10);
+const jobAudioPath = joke => path.join(JF_AUDIO, `joke-${joke.id}-${audioHash(joke)}.mp3`);
+
+// real duration: ffprobe on the droplet, afinfo on macOS, size estimate as last resort
+function probeDuration(file) {
+  try {
+    const r = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], { timeout: 15000 });
+    const d = parseFloat(String(r.stdout).trim());
+    if (d > 0) return d;
+  } catch {}
+  try {
+    const r = spawnSync('afinfo', [file], { timeout: 15000 });
+    const m = String(r.stdout).match(/estimated duration:\s*([\d.]+)/);
+    if (m) return parseFloat(m[1]);
+  } catch {}
+  try { return fs.statSync(file).size * 8 / 128000; } catch { return 0; }
+}
+const audioSecs = joke => probeDuration(jobAudioPath(joke));
+// OmniHuman wants 4–300s — shorter reads need the LongCat backup, and that's the director's call
 const OMNI_MIN_SECS = 4;
+const OMNI_MAX_SECS = 300;
 
 async function jobVoice(job, joke) {
   job.step = 'voice'; job.stepStarted = new Date().toISOString(); saveRenderJobs();
@@ -582,13 +716,35 @@ async function jobVoice(job, joke) {
     const hit = findInStores(joke.id);
     if (hit) { hit.list[hit.i].audio = `/joke-audio/joke-${joke.id}.mp3`; stores[hit.name].save(hit.list); }
   }
-  if (fs.statSync(audioPath).size * 8 / 128000 < 2)
-    throw new Error('joke reads under 2 seconds — too short even for the backup avatar; add a beat with [pause]');
+  const secs = probeDuration(audioPath);
+  if (secs < 2)
+    throw new Error(`joke reads ~${secs.toFixed(1)}s — too short even for the backup avatar; add a beat with [pause]`);
+}
+
+// stills step: generate 4 fresh stills from the direction prompt (director's default).
+// the bank stays available as an opt-in via the 'use-bank' render action.
+async function jobStills(job) {
+  await jobScenes(job);
+}
+
+// swap the gate to bank stills — free, director-triggered
+function offerBank(job) {
+  const bank = loadBank()
+    .filter(b => b.approved !== false && fs.existsSync(path.join(BANK_DIR, b.file)))
+    .sort((a, b) => String(a.lastUsed || '').localeCompare(String(b.lastUsed || ''))); // least-used first
+  if (!bank.length) throw new Error('still bank is empty');
+  job.scenes = bank.map(b => `/jacob-media/still-bank/${b.file}`);
+  job.sceneBankIds = bank.map(b => b.id);
+  job.sceneSource = 'bank';
+  delete job.pick; delete job.sceneUrl; delete job.sceneFile; delete job.bankId;
+  rlog(`${job.id} stills: ${bank.length} bank stills offered ($0)`);
 }
 
 // 4 candidate stills from the same prompt — pick one at the gate
 async function jobScenes(job) {
-  job.step = 'stills'; job.stepStarted = new Date().toISOString(); saveRenderJobs();
+  job.step = 'stills'; job.stepStarted = new Date().toISOString();
+  job.sceneSource = 'generated'; delete job.sceneBankIds; delete job.sceneFile; delete job.bankId;
+  saveRenderJobs();
   const dir = jobDir(job);
   for (const f of fs.readdirSync(dir)) if (f.startsWith('scene-')) fs.rmSync(path.join(dir, f), { force: true });
   const results = await Promise.allSettled([1, 2, 3, 4].map(i =>
@@ -616,7 +772,7 @@ async function jobRender(job, joke) {
   const doVideo = model => ng.video({
     model,
     prompt: job.motion,
-    imageDataUrl: ng.dataUrl(path.join(jobDir(job), path.basename(job.sceneUrl))),
+    imageDataUrl: ng.dataUrl(job.sceneFile || path.join(jobDir(job), path.basename(job.sceneUrl))),
     audioDataUrl: ng.dataUrl(audioPath),
     // LongCat takes a resolution select; OmniHuman ignores extras — only send when set for the fallback
     ...(model === MODELS.avatar_video_fallback && MODELS.avatar_fallback_resolution
@@ -631,24 +787,114 @@ async function jobRender(job, joke) {
     },
   });
   const v = await doVideo(job.avatarModel);
+  // a new take voids every downstream artifact — edits and captions alike
+  for (const f of ['final-captioned.mp4', 'final-edited.mp4', 'final-edited-captioned.mp4'])
+    fs.rmSync(path.join(jobDir(job), f), { force: true });
+  delete job.captionTemplate; delete job.captionOpts; delete job.editPrompt; delete job.workFile; delete job.ccFile; delete job.gateError;
   fs.writeFileSync(path.join(jobDir(job), 'final.mp4'), v.buffer);
   job.renderDone = new Date().toISOString();
   job.runId = v.runId;
   if (v.meta?.data?.cost != null) job.cost = v.meta.data.cost;
+  job.workFile = 'final.mp4';
+  job.videoSecs = Math.round(probeDuration(path.join(jobDir(job), 'final.mp4')) * 10) / 10; // real take length — drives editor routing + display
   job.clipPreview = `/renders-media/${job.id}/final.mp4`;
 }
 
-async function jobPublish(job, joke) {
+// editor routing: grok is cheaper but hard-caps input at 8s; seedance takes longer clips
+const editModelFor = secs => secs > 8 ? (MODELS.video_edit_long || 'bytedance-seedance-2-0-fast-video-edit')
+                                    : (MODELS.video_edit || 'grok-imagine-video-edit');
+
+// optional director step: Grok Imagine video-to-video edit of the take.
+// always re-edits from the RAW final.mp4 — edits never stack.
+async function jobEdit(job, prompt, aspect) {
+  job.step = 'edit'; job.stepStarted = new Date().toISOString(); saveRenderJobs();
+  const src = path.join(jobDir(job), 'final.mp4');
+  const secs = probeDuration(src);
+  const model = editModelFor(secs);
+  job.editModel = /seedance/i.test(model) ? 'seedance' : 'grok';
+  const v = await ng.video({
+    model,
+    videoDataUrl: ng.dataUrl(src), // editors need a data URL or trusted storage — share links won't do
+    prompt,
+    resolution: MODELS.video_edit_resolution || '720p',
+    // seedance defaults to 16:9 + 5s — pin it to the take's real orientation and length (duration is a 4–15s select)
+    ...(job.editModel === 'seedance' ? { aspect_ratio: aspect || job.orientation || '9:16', duration: Math.min(15, Math.max(4, Math.round(secs))) } : {}),
+  }, {
+    onTick: s => {
+      const d = s.data || s;
+      if (job._prov !== d.status) { rlog(`${job.id} editor: ${d.status}`); job._prov = d.status; }
+      job.provider = { status: d.status, progress: d.progress ?? null, eta: d.estimatedTimeRemaining ?? null };
+      saveRenderJobs();
+    },
+  });
+  fs.writeFileSync(path.join(jobDir(job), 'final-edited.mp4'), v.buffer);
+  // any caption file was burned onto a different source — it's stale now
+  for (const f of ['final-captioned.mp4', 'final-edited-captioned.mp4'])
+    fs.rmSync(path.join(jobDir(job), f), { force: true });
+  delete job.captionTemplate; delete job.captionOpts; delete job.ccFile;
+  job.editPrompt = prompt;
+  job.workFile = 'final-edited.mp4';
+  job.clipPreview = `/renders-media/${job.id}/final-edited.mp4`;
+  rlog(`${job.id} ${job.editModel} edit applied (${Math.round(secs)}s take): "${prompt.slice(0, 80)}"`);
+}
+
+// captioner requires a public URL — mint a short-lived unguessable link per take
+const tmpShares = new Map(); // token -> { file, exp }
+setInterval(() => { const now = Date.now(); for (const [t, s] of tmpShares) if (s.exp < now) tmpShares.delete(t); }, 10 * 60 * 1000).unref();
+app.get('/share/:token', (req, res) => {
+  const s = tmpShares.get(req.params.token.replace(/\.mp4$/, ''));
+  if (!s || s.exp < Date.now() || !fs.existsSync(s.file)) return res.status(404).end();
+  res.setHeader('Content-Type', 'video/mp4');
+  fs.createReadStream(s.file).pipe(res);
+});
+
+// optional director step at the publish gate: burn captions into the take.
+// always re-runs on the RAW final.mp4 (never stacks captions on captions).
+async function jobCaption(job, opts, videoUrl) {
+  job.step = 'caption'; job.stepStarted = new Date().toISOString(); saveRenderJobs();
+  const work = job.workFile || 'final.mp4'; // captions apply to the CURRENT take (raw or edited)
+  const cc = work.replace('.mp4', '-captioned.mp4');
+  const v = await ng.video({
+    model: MODELS.video_captioner || 'ai-video-editor/video-captioner',
+    videoUrl,
+    template: opts.template || 'bold-pop',
+    emoji: opts.emoji === true, // director default is off; only an explicit on adds emoji captions
+    ...(opts.transcript ? { transcript: opts.transcript } : {}), // exact script beats auto-transcription ("in tents" ≠ "intense")
+    ...(opts.translate_to && opts.translate_to !== 'none' ? { translate_to: opts.translate_to } : {}),
+  }, {
+    onTick: s => {
+      const d = s.data || s;
+      if (job._prov !== d.status) { rlog(`${job.id} captioner: ${d.status}`); job._prov = d.status; }
+      job.provider = { status: d.status, progress: d.progress ?? null, eta: d.estimatedTimeRemaining ?? null };
+      saveRenderJobs();
+    },
+  });
+  fs.writeFileSync(path.join(jobDir(job), cc), v.buffer);
+  job.ccFile = cc;
+  job.captionTemplate = opts.template || 'bold-pop';
+  job.captionOpts = opts;
+  job.clipPreview = `/renders-media/${job.id}/${cc}`;
+  rlog(`${job.id} captions applied to ${work} (${job.captionTemplate}${opts.translate_to && opts.translate_to !== 'none' ? ' → ' + opts.translate_to : ''})`);
+}
+
+async function jobPublish(job, joke, variant) {
   job.step = 'publish'; job.stepStarted = new Date().toISOString(); saveRenderJobs();
   const clips = JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'));
   let clipId = 'jacob-' + slugify(joke.text.split(/\s+/).slice(0, 4).join(' ')).slice(0, 40);
   if (clips.some(c => c.id === clipId)) clipId += '-' + crypto.randomBytes(3).toString('hex');
+  const title = joke.text.split(/\s+/).slice(0, 5).join(' ').replace(/[[\]"']/g, '') + '…';
+  // director picks ONE version at the gate by filename: original / edited / captioned
+  const work = job.workFile || 'final.mp4';
+  const cc = job.ccFile || 'final-captioned.mp4';
+  const allowed = new Set(['final.mp4', 'final-edited.mp4', cc]);
+  const ver = allowed.has(variant) && fs.existsSync(path.join(jobDir(job), variant)) ? variant : work;
+  const captioned = ver === cc;
   const mp4 = clipId + '.mp4', poster = clipId + '.jpg';
-  fs.copyFileSync(path.join(jobDir(job), 'final.mp4'), path.join(CLIPS_DIR, mp4));
+  fs.copyFileSync(path.join(jobDir(job), ver), path.join(CLIPS_DIR, mp4));
   makePoster(path.join(CLIPS_DIR, mp4), path.join(CLIPS_DIR, poster));
   clips.push({
     id: clipId,
-    title: joke.text.split(/\s+/).slice(0, 5).join(' ').replace(/[[\]"']/g, '') + '…',
+    title: captioned ? title + ' 💬' : ver === 'final-edited.mp4' ? title + ' ✂' : title,
     file: mp4, joke: joke.text, poster,
     socials: { tiktok: '', instagram: '', youtube: '', x: '' },
     ts: new Date().toISOString().slice(0, 10),
@@ -685,9 +931,9 @@ function friendlyError(e, job) {
       if (typeof inner === 'string' && inner) m = inner;
     } catch {}
   }
-  if (/audio must be between|under 4 seconds|too short for the avatar/i.test(m)) {
+  if (/audio must be between|under \d+ seconds|too short for the avatar|too long for the avatar/i.test(m)) {
     let secs = null;
-    try { secs = Math.round(fs.statSync(path.join(JF_AUDIO, `joke-${job.jokeId}.mp3`)).size * 8 / 128000 * 10) / 10; } catch {}
+    try { const jk = findJoke(job.jokeId); if (jk) secs = Math.round(probeDuration(jobAudioPath(jk)) * 10) / 10; } catch {}
     if (secs != null && secs > 300)
       return `the voice read is too long for the avatar model (max 300s, this one is ~${secs}s). Shorten the joke text, then retry.`;
     return `the voice read is too short for the avatar model (needs 4s+, this one is ~${secs ?? '?'}s). Edit the joke to add a beat — a [pause] or another line — then retry; your stills are kept.`;
@@ -698,6 +944,8 @@ function friendlyError(e, job) {
     return "the provider didn't finish in time — it's probably busy. Retry in a minute; nothing was published.";
   if (/^tts |tts job|speak \d/i.test(m)) return `voice read failed: ${m}`;
   if (/imageGen|stills failed/i.test(m)) return `scene stills failed: ${m}`;
+  const lim = m.match(/requires a 1-(\d+) second input video \(provided: ([\d.]+)s\)/i);
+  if (lim) return `the take is ~${Math.round(parseFloat(lim[2]))}s — grok edit only accepts clips up to ${lim[1]}s. The take is fine; you can still caption or publish it.`;
   return m;
 }
 
@@ -710,7 +958,7 @@ async function toSceneGate(job, joke) {
     rlog(`${job.id} job start: voice → stills`);
     await jobVoice(job, joke);
     if (cancelled(job)) return;
-    await jobScenes(job);
+    await jobStills(job);
     if (cancelled(job)) return;
     job.status = 'awaiting_scene';
     rlog(`${job.id} gate: awaiting scene pick`);
@@ -722,6 +970,8 @@ async function toSceneGate(job, joke) {
 async function toPublishGate(job, joke) {
   try {
     job.audioSecs = Math.round(audioSecs(joke) * 10) / 10;
+    if (job.audioSecs > OMNI_MAX_SECS)
+      throw new Error(`voice read is ${Math.round(job.audioSecs)}s — over the ${OMNI_MAX_SECS}s avatar limit; shorten the joke`);
     if (job.audioSecs < OMNI_MIN_SECS && MODELS.avatar_video_fallback && !job.allowBackup) {
       job.status = 'awaiting_fallback'; // director's call before spending on the backup
       job.avatarModel = MODELS.avatar_video_fallback;
@@ -750,33 +1000,35 @@ async function toPublishGate(job, joke) {
 
 // free: AI drafts the scene + motion prompts so the director can edit before any spend
 app.post('/api/jokes/render-preview', async (req, res) => {
-  const { id, setting, orientation } = req.body || {};
+  const { id, setting, orientation, framing } = req.body || {};
   const joke = id ? findJoke(id) : null;
   const orient = ORIENTS[orientation] || '9:16';
+  const fram = FRAMINGS[framing] ? framing : 'full-body';
   try {
     if (!joke) throw new Error('joke not found');
-    const d = await aiPrompt(joke, (setting || '').trim(), orient);
+    const d = await aiPrompt(joke, (setting || '').trim(), orient, fram);
     const hit = findInStores(id);
     if (hit) {
-      hit.list[hit.i].draft = { prompt: d.scene, motion: d.motion, orientation: orient, ts: new Date().toISOString() };
+      hit.list[hit.i].draft = { prompt: d.scene, motion: d.motion, orientation: orient, framing: fram, ts: new Date().toISOString() };
       stores[hit.name].save(hit.list);
     }
-    return res.json({ prompt: d.scene, defaultMotion: d.motion });
+    return res.json({ prompt: d.scene, defaultMotion: d.motion, framing: fram });
   } catch (e) {
     console.error('ai prompt draft failed, using template:', e.message);
-    res.json({ prompt: scenePrompt((setting || '').trim(), orient), defaultMotion: DEFAULT_MOTION });
+    res.json({ prompt: scenePrompt((setting || '').trim(), orient, fram), defaultMotion: DEFAULT_MOTION, framing: fram });
   }
 });
 
 // persist an edited draft without drafting again
 app.post('/api/jokes/draft', (req, res) => {
-  const { id, prompt, motion, orientation } = req.body || {};
+  const { id, prompt, motion, orientation, framing } = req.body || {};
   const hit = findInStores(id);
   if (!hit) return res.status(404).json({ error: 'joke not found' });
   const d = hit.list[hit.i].draft || {};
   if (prompt != null) d.prompt = String(prompt);
   if (motion != null) d.motion = String(motion);
   if (orientation != null) d.orientation = ORIENTS[orientation] || d.orientation || '9:16';
+  if (framing != null) d.framing = FRAMINGS[framing] ? framing : d.framing;
   d.ts = new Date().toISOString();
   hit.list[hit.i].draft = d;
   stores[hit.name].save(hit.list);
@@ -784,7 +1036,7 @@ app.post('/api/jokes/draft', (req, res) => {
 });
 
 app.post('/api/jokes/render', async (req, res) => {
-  const { id, prompt, setting, orientation, motion } = req.body || {};
+  const { id, prompt, setting, orientation, motion, framing } = req.body || {};
   const joke = findJoke(id);
   if (!joke) return res.status(404).json({ error: 'joke not found' });
   const existing = renderJobs.get(id);
@@ -796,9 +1048,10 @@ app.post('/api/jokes/render', async (req, res) => {
   } catch {}
   const job = {
     id: crypto.randomBytes(6).toString('hex'), jokeId: id, status: 'running', step: 'queued',
-    prompt: (prompt || '').trim() || scenePrompt((setting || '').trim(), ORIENTS[orientation]),
+    prompt: (prompt || '').trim() || scenePrompt((setting || '').trim(), ORIENTS[orientation], framing),
     motion: (motion || '').trim() || DEFAULT_MOTION,
     orientation: ORIENTS[orientation] || '9:16',
+    framing: FRAMINGS[framing] ? framing : 'full-body',
     ts: new Date().toISOString(),
   };
   renderJobs.set(id, job);
@@ -820,6 +1073,12 @@ app.post('/api/jokes/render-action', (req, res) => {
   if (action === 'cancel') {
     if (!ACTIVE_STATUSES.has(job.status)) return res.status(409).json({ error: 'nothing running' });
     job.status = 'cancelled';
+    saveRenderJobs();
+    return res.json({ ok: true });
+  }
+  if (action === 'use-bank') {
+    if (job.status !== 'awaiting_scene') return res.status(409).json({ error: 'not at the stills step' });
+    try { offerBank(job); } catch (e) { return res.status(400).json({ error: e.message }); }
     saveRenderJobs();
     return res.json({ ok: true });
   }
@@ -846,14 +1105,64 @@ app.post('/api/jokes/render-action', (req, res) => {
     if (!scenes.length || !(i >= 0 && i < scenes.length)) return res.status(400).json({ error: 'pick a still first' });
     job.pick = i;
     job.sceneUrl = scenes[i];
+    job.bankId = job.sceneBankIds?.[i] || null;
+    job.sceneFile = job.bankId
+      ? path.join(BANK_DIR, bankEntry(job.bankId)?.file || '')
+      : path.join(jobDir(job), path.basename(job.sceneUrl));
+    if (job.bankId) { // track rotation — bank sorts least-used first
+      const bank = loadBank();
+      const e = bank.find(b => b.id === job.bankId);
+      if (e) { e.uses = (e.uses || 0) + 1; e.lastUsed = new Date().toISOString(); saveBank(bank); }
+    }
     job.status = 'running'; saveRenderJobs();
     toPublishGate(job, joke);
+    return res.json({ ok: true });
+  }
+  if (action === 'edit') {
+    if (job.status !== 'awaiting_publish') return res.status(409).json({ error: 'nothing to edit' });
+    const src = path.join(jobDir(job), 'final.mp4');
+    if (!fs.existsSync(src)) return res.status(400).json({ error: 'no take to edit' });
+    const prompt = String(req.body.prompt || '').trim();
+    if (!prompt) return res.status(400).json({ error: 'describe the edit first' });
+    delete job.gateError;
+    job.status = 'running'; saveRenderJobs();
+    jobEdit(job, prompt, req.body.aspect_ratio)
+      .then(() => { if (!cancelled(job)) job.status = 'awaiting_publish'; })
+      .catch(e => { // post-step failure: the take is intact — return to the gate with the error surfaced
+        console.error('edit failed:', e); rlog(`${job.id} EDIT ERROR ${e.message}`);
+        job.status = 'awaiting_publish'; job.gateError = friendlyError(e, job);
+      })
+      .finally(saveRenderJobs);
+    return res.json({ ok: true });
+  }
+  if (action === 'caption') {
+    if (job.status !== 'awaiting_publish') return res.status(409).json({ error: 'nothing to caption' });
+    const src = path.join(jobDir(job), job.workFile || 'final.mp4');
+    if (!fs.existsSync(src)) return res.status(400).json({ error: 'no take to caption' });
+    const opts = {
+      template: String(req.body.template || 'bold-pop'),
+      transcript: String(req.body.transcript || '').trim() || null,
+      translate_to: String(req.body.translate_to || 'none'),
+      emoji: req.body.emoji === true,
+    };
+    const token = crypto.randomBytes(12).toString('hex');
+    tmpShares.set(token, { file: src, exp: Date.now() + 30 * 60 * 1000 });
+    const videoUrl = `https://${req.get('host')}/share/${token}.mp4`;
+    delete job.gateError;
+    job.status = 'running'; saveRenderJobs();
+    jobCaption(job, opts, videoUrl)
+      .then(() => { if (!cancelled(job)) job.status = 'awaiting_publish'; })
+      .catch(e => { // post-step failure: the take is intact — return to the gate with the error surfaced
+        console.error('caption failed:', e); rlog(`${job.id} CAPTION ERROR ${e.message}`);
+        job.status = 'awaiting_publish'; job.gateError = friendlyError(e, job);
+      })
+      .finally(saveRenderJobs);
     return res.json({ ok: true });
   }
   if (action === 'publish') {
     if (job.status !== 'awaiting_publish') return res.status(409).json({ error: 'nothing to publish' });
     job.status = 'running'; saveRenderJobs();
-    jobPublish(job, joke)
+    jobPublish(job, joke, req.body.variant)
       .then(() => { if (!cancelled(job)) job.status = 'done'; })
       .catch(e => failJob(job, e))
       .finally(saveRenderJobs);
@@ -876,9 +1185,9 @@ app.post('/api/jokes/render-action', (req, res) => {
   // walk backwards: scrap the take, keep the stills
   if (action === 'back') {
     const ok = job.status === 'awaiting_publish' || job.status === 'awaiting_fallback'
-      || (['error', 'interrupted'].includes(job.status) && job.step === 'render');
+      || (['error', 'interrupted'].includes(job.status) && ['render', 'caption', 'edit'].includes(job.step));
     if (!ok) return res.status(409).json({ error: 'can only step back from the video step' });
-    delete job.pick; delete job.sceneUrl; delete job.clipPreview; delete job.error;
+    delete job.pick; delete job.sceneUrl; delete job.sceneFile; delete job.bankId; delete job.clipPreview; delete job.error;
     job.status = 'awaiting_scene';
     saveRenderJobs();
     return res.json({ ok: true });
@@ -888,15 +1197,34 @@ app.post('/api/jokes/render-action', (req, res) => {
     if (job.status !== 'error' && job.status !== 'interrupted') return res.status(409).json({ error: 'nothing to retry' });
     delete job.error;
     job.status = 'running'; saveRenderJobs();
-    const again = job.step === 'render' ? toPublishGate(job, joke) : toSceneGate(job, joke);
-    again.catch(e => failJob(job, e));
+    if (job.step === 'caption' || job.step === 'edit') { // post-step died — rerun it on the surviving take
+      let rerun;
+      if (job.step === 'caption') {
+        const src = path.join(jobDir(job), job.workFile || 'final.mp4');
+        const token = crypto.randomBytes(12).toString('hex');
+        tmpShares.set(token, { file: src, exp: Date.now() + 30 * 60 * 1000 });
+        rerun = jobCaption(job, job.captionOpts || {}, `https://${req.get('host')}/share/${token}.mp4`);
+      } else {
+        rerun = jobEdit(job, job.editPrompt || '');
+      }
+      rerun
+        .then(() => { if (!cancelled(job)) job.status = 'awaiting_publish'; })
+        .catch(e => {
+          console.error('post-step retry failed:', e); rlog(`${job.id} RETRY ERROR ${e.message}`);
+          job.status = 'awaiting_publish'; job.gateError = friendlyError(e, job);
+        })
+        .finally(saveRenderJobs);
+    } else {
+      const again = job.step === 'render' ? toPublishGate(job, joke) : toSceneGate(job, joke);
+      again.catch(e => failJob(job, e));
+    }
     return res.json({ ok: true });
   }
   // unpublish a live clip — pulls it off the wall, lands back at review
   if (action === 'unpublish') {
     if (job.status !== 'done' || !job.clipId) return res.status(409).json({ error: 'nothing published to unpublish' });
     const clips = JSON.parse(fs.readFileSync(CLIPS_JSON, 'utf8'));
-    fs.writeFileSync(CLIPS_JSON, JSON.stringify(clips.filter(c => c.id !== job.clipId), null, 2));
+    fs.writeFileSync(CLIPS_JSON, JSON.stringify(clips.filter(c => c.id !== job.clipId && c.id !== job.clipId + '-cc'), null, 2));
     const hit = findInStores(jokeId);
     if (hit) { delete hit.list[hit.i].produced; delete hit.list[hit.i].clip; stores[hit.name].save(hit.list); }
     job.status = 'awaiting_publish';
@@ -904,6 +1232,35 @@ app.post('/api/jokes/render-action', (req, res) => {
     return res.json({ ok: true });
   }
   res.status(400).json({ error: 'unknown action' });
+});
+
+// bank maintenance — grow it from director-approved generated stills, prune bad ones
+app.post('/api/jokes/bank/add', (req, res) => {
+  const { jokeId, pick } = req.body || {};
+  const job = renderJobs.get(jokeId);
+  if (!job) return res.status(404).json({ error: 'no render job for that joke' });
+  const scenes = job.scenes || [];
+  const i = parseInt(pick);
+  if (!(i >= 0 && i < scenes.length)) return res.status(400).json({ error: 'pick a still first' });
+  if (job.sceneBankIds?.[i]) return res.status(409).json({ error: 'already in the bank' });
+  const src = path.join(jobDir(job), path.basename(scenes[i]));
+  if (!fs.existsSync(src)) return res.status(404).json({ error: 'still file missing' });
+  const bank = loadBank();
+  const id = 'bank-' + crypto.randomBytes(4).toString('hex');
+  fs.copyFileSync(src, path.join(BANK_DIR, `${id}.png`));
+  bank.push({ id, file: `${id}.png`, framing: job.framing || 'full-body', approved: true, uses: 0, ts: new Date().toISOString() });
+  saveBank(bank);
+  rlog(`${job.id} still ${i + 1} added to bank → ${id}`);
+  res.json({ ok: true, id });
+});
+
+app.post('/api/jokes/bank/remove', (req, res) => {
+  const bank = loadBank();
+  const e = bank.find(b => b.id === req.body?.id);
+  if (!e) return res.status(404).json({ error: 'not in the bank' });
+  e.approved = false;
+  saveBank(bank);
+  res.json({ ok: true });
 });
 
 app.get('/api/jokes/render-status', (req, res) => {

@@ -51,9 +51,20 @@
   .vsteps .ar { color:#444; }
   .vscenes { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:8px; }
   @media (max-width:640px) { .vscenes { grid-template-columns:1fr 1fr; } }
+  .vscenes .scell { position:relative; }
   .vscenes img { width:100%; border-radius:8px; border:2px solid transparent; cursor:pointer; display:block; }
   .vscenes img.pick { border-color:#3ddc84; }
+  .vscenes .banktag { position:absolute; top:4px; left:4px; background:rgba(0,0,0,.65); color:#3ddc84; font-size:.6rem; padding:2px 6px; border-radius:6px; pointer-events:none; }
+  .vscenes .cellbtn { position:absolute; top:4px; right:4px; background:rgba(0,0,0,.65); border:none; color:#fff; font-size:.7rem; padding:2px 7px; border-radius:6px; cursor:pointer; }
+  .vscenes .cellbtn:hover { background:rgba(0,0,0,.85); }
   .rform { width:100%; display:flex; flex-direction:column; gap:10px; }
+  .switch { display:inline-flex; align-items:center; gap:7px; cursor:pointer; font-size:.8rem; color:#aaa; user-select:none; }
+  .switch input { display:none; }
+  .switch .track { width:32px; height:17px; background:#444; border-radius:999px; position:relative; transition:background .15s; flex:none; }
+  .switch .track::after { content:''; position:absolute; top:2px; left:2px; width:13px; height:13px; background:#ccc; border-radius:50%; transition:left .15s, background .15s; }
+  .switch input:checked + .track { background:#3ddc84; }
+  .switch input:checked + .track::after { left:17px; background:#fff; }
+  .switch input:disabled + .track { opacity:.4; }
   .rform input, .rform textarea, .rform select { background:#0e0e17; border:1px solid #2c2c44; color:#e8e8f2; border-radius:10px; padding:11px 13px; font:inherit; font-size:.9rem; width:100%; box-sizing:border-box; outline:none; transition:border-color .15s, box-shadow .15s; }
   .rform textarea { resize:vertical; line-height:1.55; font-size:.85rem; }
   .rform select { appearance:none; -webkit-appearance:none; background-image:linear-gradient(45deg, transparent 50%, #8a8aa0 50%), linear-gradient(135deg, #8a8aa0 50%, transparent 50%); background-position:calc(100% - 19px) 50%, calc(100% - 14px) 50%; background-size:5px 5px; background-repeat:no-repeat; cursor:pointer; padding-right:36px; }
@@ -134,6 +145,8 @@
   @keyframes pulse { 50% { box-shadow:0 0 0 14px rgba(61,220,132,.07); } }
   #scout { background:linear-gradient(135deg,#2d7a4f,#1f6); border:none; color:#fff; font-size:.85rem; font-weight:600; padding:12px 18px; border-radius:12px; cursor:pointer; }
   #scout:disabled { opacity:.4; cursor:default; }
+  #lab { background:linear-gradient(135deg,#4f3d9e,#7a5cf0); border:none; color:#fff; font-size:.85rem; font-weight:600; padding:12px 18px; border-radius:12px; cursor:pointer; }
+  #lab:disabled { opacity:.4; cursor:default; }
   #textRow { display:flex; gap:8px; width:100%; max-width:560px; }
   #textRow input { flex:1; background:#1c1c26; border:1px solid #333; border-radius:8px; color:#eee; padding:8px 12px; font-size:.9rem; }
   #textRow button { background:#2a2a3a; border:1px solid #444; color:#ddd; padding:8px 14px; border-radius:8px; cursor:pointer; }
@@ -197,6 +210,8 @@
   <div id="status">talk to the scout, or pull a batch of jokes</div>
   <div id="btnRow">
     <button id="scout">🃏 scout jokes</button>
+    <button id="lab" title="experimental: Grok retrieves current high-engagement jokes from X/Twitter roundups — verbatim">🧪 lab</button>
+    <button id="labDead" title="experimental: retrieve Steven Wright + Mitch Hedberg one-liners from quote archives — verbatim">🎙 deadpan</button>
     <button id="mic">🎙</button>
   </div>
   <div id="textRow">
@@ -242,9 +257,20 @@ function renderJoke(j) {
   const card = document.createElement('div');
   card.className = 'joke';
   card.dataset.id = j.id;
-  card.innerHTML = `<div class="tag">candidate</div><div class="txt"></div><div class="actions"></div>`;
-  card.querySelector('.txt').textContent = j.text;
+  card.innerHTML = `<div class="tag">${j.lab ? `🧪 lab · ${j.mechanism || '?'}` : 'candidate'}</div><div class="txt"></div><div class="actions"></div>`;
   const actions = card.querySelector('.actions');
+  if (j.lab && j.premise) card.querySelector('.tag').title = 'premise: ' + j.premise;
+  if (j.source) { // lab: tap to see the original joke it was modernized from
+    const orig = document.createElement('button');
+    orig.className = 'dupe';
+    orig.textContent = '📜 see the original';
+    orig.onclick = () => {
+      orig.classList.toggle('open');
+      orig.textContent = orig.classList.contains('open') ? `📜 was: “${j.source}”` : '📜 see the original';
+    };
+    card.insertBefore(orig, actions);
+  }
+  card.querySelector('.txt').textContent = j.text;
   if (j.similar) {
     const warn = document.createElement('button');
     warn.className = 'dupe';
@@ -362,6 +388,27 @@ scoutBtn.onclick = async () => {
   scoutBtn.disabled = false;
   loadBalance();
 };
+
+const labBtn = document.getElementById('lab');
+const labDeadBtn = document.getElementById('labDead');
+async function runLab(mode, btn) {
+  btn.disabled = true;
+  setStatus(mode === 'deadpan' ? 'digging through the Wright + Hedberg archives…' : 'lab is pulling current jokes off X via Grok…');
+  try {
+    const r = await fetch('/api/jokes/lab', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({count:4, mode}) });
+    const d = await r.json();
+    if (!r.ok) { setStatus('lab error: ' + (d.error || r.status)); }
+    else if (!d.jokes.length) { setStatus('lab came back empty'); }
+    else {
+      d.jokes.forEach(renderJoke);
+      setStatus(`${d.jokes.length} lab lines — compare with scout's, keep or toss` + (d.note ? ` · note: ${d.note}` : ''));
+    }
+  } catch(e) { setStatus('lab failed'); }
+  btn.disabled = false;
+  loadBalance();
+}
+labBtn.onclick = () => runLab('current', labBtn);
+labDeadBtn.onclick = () => runLab('deadpan', labDeadBtn);
 
 async function sendTurn(body, headers) {
   setStatus('transcribing… thinking…');
@@ -561,8 +608,8 @@ function currentJoke() {
 }
 const sigOf = j => j?.render ? `${j.render.status}:${j.render.step || ''}:${(j.render.scenes || []).length}` : '';
 const atVideoStep = r => r && (r.status === 'awaiting_publish' || r.status === 'awaiting_fallback' || r.status === 'done'
-  || (r.status === 'running' && ['render', 'publish'].includes(r.step))
-  || (['error', 'interrupted'].includes(r.status) && r.step === 'render'));
+  || (r.status === 'running' && ['render', 'publish', 'caption', 'edit'].includes(r.step))
+  || (['error', 'interrupted'].includes(r.status) && ['render', 'caption', 'edit'].includes(r.step)));
 
 async function refreshJokes() {
   try { jokesCache = await (await fetch('/api/jokes')).json(); } catch { return; }
@@ -741,20 +788,24 @@ function renderDirectionForm(pane, j, draft) {
   const or = document.createElement('select');
   or.innerHTML = '<option value="vertical">vertical (phone)</option><option value="horizontal">horizontal</option>';
   if (draft?.orientation === '16:9') or.value = 'horizontal';
+  const lfr = document.createElement('div'); lfr.className = 'flabel'; lfr.textContent = 'framing';
+  const fr = document.createElement('select');
+  fr.innerHTML = '<option value="full-body">full-body (head-to-toe, shows the runners)</option><option value="waist-up">waist-up (face close — better lip sync)</option>';
+  if (draft?.framing === 'waist-up') fr.value = 'waist-up';
   const rr = document.createElement('div'); rr.className = 'rrow';
   const next = document.createElement('button'); next.className = 'prod'; next.textContent = '✨ write the prompt';
   const st = document.createElement('div'); st.className = 'rstatus';
   rr.append(next, st);
-  wrap.append(lset, setting, lor, or, rr);
+  wrap.append(lset, setting, lor, or, lfr, fr, rr);
   pane.appendChild(wrap);
   next.onclick = async () => {
     next.disabled = true; st.replaceChildren(workingEl('AI is drafting the scene…'));
     const stopT = requestTick(st);
     const d = await (await fetch('/api/jokes/render-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: j.id, setting: setting.value, orientation: or.value }) })).json();
+      body: JSON.stringify({ id: j.id, setting: setting.value, orientation: or.value, framing: fr.value }) })).json();
     stopT();
     wrap.remove();
-    j.draft = { prompt: d.prompt, motion: d.defaultMotion, orientation: or.value === 'horizontal' ? '16:9' : '9:16' };
+    j.draft = { prompt: d.prompt, motion: d.defaultMotion, orientation: or.value === 'horizontal' ? '16:9' : '9:16', framing: fr.value };
     renderPromptEditor(pane, j, j.draft);
   };
 }
@@ -784,7 +835,7 @@ function renderPromptEditor(pane, j, draft) {
   gen.onclick = async () => {
     gen.disabled = true; st.replaceChildren(workingEl('starting the job — voice first, then stills…'));
     const x = await fetch('/api/jokes/render', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: j.id, prompt: ta.value, motion: mo.value, orientation: orient }) });
+      body: JSON.stringify({ id: j.id, prompt: ta.value, motion: mo.value, orientation: orient, framing: draft.framing }) });
     const dd = await x.json();
     if (!x.ok) { st.textContent = dd.error || 'failed'; gen.disabled = false; return; }
     await refreshJokes(); renderStage(); ensurePolling();
@@ -796,16 +847,41 @@ function renderStillGate(pane, j, locked) {
   const wrap = document.createElement('div'); wrap.className = 'rform';
   const grid = document.createElement('div'); grid.className = 'vscenes';
   let picked = r.pick ?? -1;
+  const dead = new Set(); // cells removed from the bank mid-gate stay index-stable but unpickable
   (r.scenes || []).forEach((u, i) => {
+    const cell = document.createElement('div'); cell.className = 'scell';
     const img = document.createElement('img');
     img.src = u; img.loading = 'lazy'; img.alt = `still ${i + 1}`;
     if (i === picked) img.classList.add('pick');
     img.onclick = () => {
+      if (dead.has(i)) return;
       if (picked === i) { picked = -1; img.classList.remove('pick'); go.classList.remove('prod'); return; } // tap again to unpick
       picked = i; grid.querySelectorAll('img').forEach(x => x.classList.remove('pick')); img.classList.add('pick');
       go.classList.add('prod');
     };
-    grid.appendChild(img);
+    cell.appendChild(img);
+    const bankId = (r.sceneBankIds || [])[i];
+    if (bankId) {
+      const tag = document.createElement('span'); tag.className = 'banktag'; tag.textContent = 'bank';
+      const rm = document.createElement('button'); rm.className = 'cellbtn'; rm.textContent = '✕'; rm.title = 'remove from the still bank';
+      rm.onclick = async ev => {
+        ev.stopPropagation();
+        if (!confirm('remove this still from the bank?')) return;
+        await fetch('/api/jokes/bank/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: bankId }) });
+        dead.add(i); if (picked === i) { picked = -1; go.classList.remove('prod'); }
+        cell.remove();
+      };
+      cell.append(tag, rm);
+    } else {
+      const add = document.createElement('button'); add.className = 'cellbtn'; add.textContent = '☆'; add.title = 'add this still to the bank for reuse';
+      add.onclick = async ev => {
+        ev.stopPropagation();
+        const d = await (await fetch('/api/jokes/bank/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, pick: i }) })).json();
+        if (d.ok) { add.outerHTML = '<span class="banktag">bank ✓</span>'; } else { add.textContent = d.error || '!'; }
+      };
+      cell.appendChild(add);
+    }
+    grid.appendChild(cell);
   });
   const lp = document.createElement('div'); lp.className = 'flabel'; lp.textContent = 'scene prompt — edit and reroll';
   const ta = document.createElement('textarea'); ta.rows = 5; ta.value = r.prompt || '';
@@ -813,19 +889,29 @@ function renderStillGate(pane, j, locked) {
   const mo = document.createElement('textarea'); mo.rows = 3; mo.value = r.motion || '';
   const rr = document.createElement('div'); rr.className = 'rrow';
   const again = document.createElement('button'); again.textContent = '↻ 4 new from this prompt (~$0.25)';
+  const bank = document.createElement('button'); bank.textContent = '🏦 bank stills (free)';
+  bank.title = 'swap to director-approved bank stills — note: current bank is waist-up';
+  bank.onclick = async () => {
+    lock(true); busy('loading bank stills…');
+    const d = await post({ action: 'use-bank' });
+    if (d.error) { note(d.error, true); lock(false); } else { await refreshJokes(); ensurePolling(); }
+  };
   const go = document.createElement('button'); go.textContent = '▶ make the video (~$0.75)';
   go.title = 'approves the picked still and starts the avatar render';
   if (picked >= 0) go.classList.add('prod'); // only green once a still is chosen
   const cancel = document.createElement('button'); cancel.textContent = '✕ scrap job';
   cancel.title = 'scrap these stills and this job, back to direction';
-  const st = document.createElement('div'); st.className = 'rstatus'; st.textContent = 'tap a still (tap again to unpick) — or edit the prompt and reroll';
-  rr.append(again, go, cancel);
+  const st = document.createElement('div'); st.className = 'rstatus';
+  st.textContent = r.sceneSource === 'bank'
+    ? 'tap a bank still (tap again to unpick) — free — or edit the prompt and generate new'
+    : 'tap a still (tap again to unpick) — ☆ saves it to the bank — or edit the prompt and reroll';
+  rr.append(again, bank, go, cancel);
   wrap.append(grid, lp, ta, lm, mo, st, rr);
   pane.appendChild(wrap);
   const busy = msg => { st.className = 'rstatus'; st.replaceChildren(workingEl(msg)); };
   const note = (msg, err) => { st.className = 'rstatus' + (err ? ' err' : ''); st.textContent = msg; };
   const lock = on => { // no double-fires while a step is in flight
-    [again, go, cancel, ta, mo].forEach(c => { c.disabled = on; });
+    [again, bank, go, cancel, ta, mo].forEach(c => { c.disabled = on; });
     grid.querySelectorAll('img').forEach(i => { i.style.pointerEvents = on ? 'none' : ''; i.style.opacity = on ? '.55' : ''; });
   };
   const post = async body => { // network failure or hang must not freeze the gate
@@ -885,12 +971,17 @@ function renderVideo() {
   } else {
     videoPane.appendChild(jokeCard(j));
     if (r.status === 'running') {
-      videoPane.appendChild(workingEl(r.step === 'publish' ? 'publishing to the gallery…' : 'video agent is generating your video'));
+      videoPane.appendChild(workingEl(r.step === 'publish' ? 'publishing to the gallery…'
+        : r.step === 'caption' ? 'burning captions into the take…'
+        : r.step === 'edit' ? 'grok is re-cutting the take…'
+        : 'video agent is generating your video'));
       tickLine(videoPane, j);
     }
-    if (['error', 'interrupted'].includes(r.status) && r.step === 'render') {
-      videoPane.appendChild(hintEl(`✗ render ${r.status}: ${r.error || ''}`));
-      const re = document.createElement('button'); re.className = 'prod'; re.textContent = '↻ retry render (~$0.75)';
+    if (['error', 'interrupted'].includes(r.status) && ['render', 'caption', 'edit'].includes(r.step)) {
+      videoPane.appendChild(hintEl(`✗ ${r.step === 'caption' ? 'caption' : r.step === 'edit' ? 'edit' : 'render'} ${r.status}: ${r.error || ''}`));
+      const re = document.createElement('button'); re.className = 'prod';
+      re.textContent = r.step === 'render' ? '↻ retry render (~$0.75)'
+        : r.step === 'edit' ? '↻ retry edit (~$0.30)' : '↻ retry captions (~$0.08)';
       re.style.alignSelf = 'flex-start';
       re.onclick = async () => {
         re.disabled = true;
@@ -930,11 +1021,65 @@ function renderVideo() {
       };
     }
     if (r.status === 'awaiting_publish') {
+      if (r.gateError) videoPane.appendChild(hintEl('⚠ ' + r.gateError));
       const dur = renderDur(r);
       if (dur) videoPane.appendChild(hintEl(`rendered in ${dur}${r.viaBackup ? ` · ${r.avatarModel} (short-read backup)` : ''}`));
-      const v = document.createElement('video');
-      v.className = 'take'; v.src = r.clipPreview; v.controls = true; v.playsInline = true; v.preload = 'metadata';
-      videoPane.appendChild(v);
+      const work = r.workFile || 'final.mp4';
+      const cc = r.ccFile || 'final-captioned.mp4';
+      // every version in production order — tap the one to ship
+      const takes = [{ file: 'final.mp4', label: '1 · original' }];
+      if (work === 'final-edited.mp4') takes.push({ file: work, label: `2 · edited${r.editModel ? ' · ' + r.editModel : ''}` });
+      if (r.captionTemplate) takes.push({ file: cc, label: `${takes.length + 1} · captions · ${r.captionTemplate}` });
+      let variant = takes[takes.length - 1].file; // newest version pre-selected
+      if (takes.length > 1) {
+        const grid = document.createElement('div'); grid.className = 'vscenes';
+        grid.style.gridTemplateColumns = `repeat(${takes.length},1fr)`;
+        const mk = (file, label) => {
+          const cell = document.createElement('div'); cell.className = 'scell';
+          const vv = document.createElement('video');
+          vv.src = `/renders-media/${r.id}/${file}`; vv.controls = true; vv.playsInline = true; vv.preload = 'metadata';
+          vv.style.cssText = 'width:100%;border-radius:8px;border:2px solid ' + (file === variant ? '#3ddc84' : 'transparent') + ';display:block;cursor:pointer';
+          vv.onclick = () => {
+            variant = file;
+            grid.querySelectorAll('video').forEach(x => x.style.borderColor = 'transparent');
+            vv.style.borderColor = '#3ddc84';
+          };
+          const tag = document.createElement('span'); tag.className = 'banktag'; tag.textContent = label;
+          cell.append(vv, tag);
+          return cell;
+        };
+        takes.forEach(t => grid.appendChild(mk(t.file, t.label)));
+        videoPane.appendChild(grid);
+        videoPane.appendChild(hintEl('tap a take to pick which one ships to the gallery'));
+      } else {
+        const v = document.createElement('video');
+        v.className = 'take'; v.src = r.clipPreview; v.controls = true; v.playsInline = true; v.preload = 'metadata';
+        videoPane.appendChild(v);
+      }
+      // optional grok edit — describe the change, it re-cuts the take (always from the raw render)
+      const ew = document.createElement('div'); ew.className = 'rform';
+      const vsecs = r.videoSecs || r.audioSecs || 0;
+      const longTake = vsecs > 8; // grok is cheaper but caps at 8s — longer takes route to seedance
+      const editorName = longTake ? 'seedance 2.0 fast' : 'grok imagine';
+      const estCost = longTake ? vsecs * 0.13 : Math.min(vsecs || 8, 8) * 0.065;
+      const el2 = document.createElement('div'); el2.className = 'flabel';
+      el2.textContent = `edit take — ${vsecs ? `~${Math.round(vsecs)}s` : ''} → ${editorName}${longTake ? ' (grok caps at 8s)' : ''} — describe the change`;
+      const ep = document.createElement('textarea'); ep.rows = 2;
+      ep.value = r.editPrompt || '';
+      ep.placeholder = 'e.g. make it rain, zoom in on his face, turn the sky orange';
+      const er2 = document.createElement('div'); er2.className = 'rrow';
+      const osel = document.createElement('select');
+      osel.title = 'edited video orientation — defaults to the take\'s own';
+      osel.innerHTML = ['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'].map(o =>
+        `<option${o === (r.orientation || '9:16') ? ' selected' : ''}>${o === '9:16' ? '9:16 vertical' : o === '16:9' ? '16:9 landscape' : o}</option>`).join('');
+      const ed = document.createElement('button');
+      ed.textContent = `✂ ${work === 'final-edited.mp4' ? 're-edit' : 'edit'} take (~$${estCost.toFixed(2)})`;
+      ed.title = 'video edit — always re-cuts from the original take, never stacks edits';
+      const est = document.createElement('div'); est.className = 'rstatus';
+      er2.appendChild(osel);
+      er2.appendChild(ed);
+      ew.append(el2, ep, er2, est);
+      videoPane.appendChild(ew);
       const br = document.createElement('div'); br.className = 'rrow';
       const pub = document.createElement('button'); pub.className = 'prod'; pub.textContent = 'publish to gallery';
       const back = document.createElement('button'); back.textContent = '← back to stills';
@@ -942,16 +1087,61 @@ function renderVideo() {
       const bin = document.createElement('button'); bin.className = 'del'; bin.textContent = 'bin it';
       br.append(pub, back, bin);
       videoPane.appendChild(br);
-      const lockRow = () => { pub.disabled = back.disabled = bin.disabled = true; };
-      const post = async action => { // network failure or hang must not freeze the gate
+      // optional captions — transcript box pre-fills with the joke (fixes mishears like "in tents"),
+      // editable for rewording or another language; translate_to dubs the captions natively
+      const cw = document.createElement('div'); cw.className = 'rform';
+      const cr = document.createElement('div'); cr.className = 'rrow';
+      const tsel = document.createElement('select');
+      tsel.innerHTML = ['bold-pop','box','karaoke','one-word','word-by-word','minimal','focus','neon','comic','headline','bar','playful']
+        .map(t => `<option${t === (r.captionOpts?.template || 'bold-pop') ? ' selected' : ''}>${t}</option>`).join('');
+      const lsel = document.createElement('select');
+      lsel.title = 'caption language — translate the captions, audio stays English';
+      lsel.innerHTML = [['none','captions: english'],['es','→ spanish'],['fr','→ french'],['de','→ german'],['it','→ italian'],['pt','→ portuguese'],['ja','→ japanese'],['ko','→ korean'],['zh-CN','→ chinese'],['hi','→ hindi'],['ar','→ arabic'],['ru','→ russian']]
+        .map(([v, l]) => `<option value="${v}"${v === (r.captionOpts?.translate_to || 'none') ? ' selected' : ''}>${l}</option>`).join('');
+      const cap = document.createElement('button'); cap.textContent = r.captionTemplate ? 're-caption (~$0.08)' : '💬 add captions (~$0.08)';
+      cap.title = 'AI Video Captioner — burned-in captions, re-runs on the uncaptioned take';
+      const elab = document.createElement('label'); elab.className = 'switch';
+      const emo = document.createElement('input'); emo.type = 'checkbox';
+      emo.checked = r.captionOpts?.emoji === true; // director preference: off by default
+      const etrack = document.createElement('span'); etrack.className = 'track';
+      elab.append(emo, etrack, ' emoji');
+      const tbox = document.createElement('textarea'); tbox.rows = 2;
+      tbox.title = 'transcript override — what the captions should say (pre-filled with the joke; fix mishearings or rewrite)';
+      tbox.value = r.captionOpts?.transcript || j.text;
+      cr.append(tsel, lsel, elab, cap);
+      cw.append(cr, tbox);
+      const cst = document.createElement('div'); cst.className = 'rstatus';
+      cw.appendChild(cst);
+      videoPane.appendChild(cw);
+      const lockRow = () => { pub.disabled = back.disabled = bin.disabled = cap.disabled = tsel.disabled = lsel.disabled = emo.disabled = tbox.disabled = ed.disabled = ep.disabled = osel.disabled = true; };
+      const post = async (action, extra = {}) => { // network failure or hang must not freeze the gate
         try {
           const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 30000);
-          const r = await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action }), signal: ctrl.signal });
+          const r = await fetch('/api/jokes/render-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jokeId: j.id, action, ...extra }), signal: ctrl.signal });
           clearTimeout(t);
           return await r.json();
         } catch { return { error: 'request failed or timed out — check connection and try again' }; }
       };
-      const fail = d => { if (d?.error) { pub.disabled = back.disabled = bin.disabled = false; videoPane.appendChild(hintEl(d.error)); return true; } };
+      const fail = d => { if (d?.error) { pub.disabled = back.disabled = bin.disabled = cap.disabled = tsel.disabled = lsel.disabled = emo.disabled = tbox.disabled = ed.disabled = ep.disabled = osel.disabled = false; videoPane.appendChild(hintEl(d.error)); return true; } };
+      ed.onclick = async () => {
+        if (!ep.value.trim()) { est.textContent = 'describe the edit first'; return; }
+        lockRow();
+        est.replaceChildren(workingEl('grok is re-cutting the take…'));
+        const stop = requestTick(est);
+        const d = await post('edit', { prompt: ep.value, aspect_ratio: osel.value.split(' ')[0] });
+        stop();
+        if (fail(d)) { est.textContent = ''; return; }
+        await refreshJokes(); renderStage(); ensurePolling();
+      };
+      cap.onclick = async () => {
+        lockRow();
+        cst.replaceChildren(workingEl('burning captions into the take…'));
+        const stop = requestTick(cst);
+        const d = await post('caption', { template: tsel.value, transcript: tbox.value, translate_to: lsel.value, emoji: emo.checked });
+        stop();
+        if (fail(d)) { cst.textContent = ''; return; }
+        await refreshJokes(); renderStage(); ensurePolling();
+      };
       back.onclick = async () => {
         lockRow();
         const d = await post('back'); if (fail(d)) return;
@@ -959,7 +1149,7 @@ function renderVideo() {
       };
       pub.onclick = async () => {
         lockRow();
-        const d = await post('publish'); if (fail(d)) return;
+        const d = await post('publish', { variant }); if (fail(d)) return;
         await refreshJokes(); renderStage(); ensurePolling();
       };
       bin.onclick = async () => {

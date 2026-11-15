@@ -6,6 +6,11 @@
   "scene_image": "nano-banana-2.1",
   "avatar_video": "bytedance/omnihuman/v2",
   "avatar_video_fallback": "longcat-avatar-1.5",
+  "joke_lab": "x-ai/grok-4.7:online",
+  "video_captioner": "ai-video-editor/video-captioner",
+  "video_edit": "grok-imagine-video-edit",
+  "video_edit_long": "bytedance-seedance-2-0-fast-video-edit",
+  "video_edit_resolution": "720p",
   "avatar_fallback_resolution": "720p",
   "max_clip_cost": 3.0
 }
