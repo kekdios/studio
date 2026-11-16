@@ -43,7 +43,8 @@
   header button.mode:hover { border-color:#666; }
   header button.mode + a.room { margin-left:0; }
   #feed { position:fixed; inset:0; background:#0a0a0f; z-index:8; }
-  #feedScroll { height:100%; overflow-y:scroll; scroll-snap-type:y mandatory; }
+  #feedScroll { height:100%; overflow-y:scroll; scroll-snap-type:y mandatory; touch-action:none; scrollbar-width:none; }
+  #feedScroll::-webkit-scrollbar { display:none; }
   .fcard { position:relative; height:100%; scroll-snap-align:start; scroll-snap-stop:always; background:#000; display:flex; align-items:center; justify-content:center; }
   .fcard video { width:100%; height:100%; object-fit:contain; background:#000; }
   .frail { position:absolute; right:10px; bottom:96px; display:flex; flex-direction:column; gap:14px; }
@@ -54,6 +55,9 @@
   .frail button.dn.mine { border-color:#7a2d2d; color:#e2483d; background:rgba(58,23,23,.7); }
   .fjoke { position:absolute; left:14px; right:76px; bottom:18px; font-size:.85rem; line-height:1.45; color:#eee; text-shadow:0 1px 6px #000; }
   .fcard .mute { position:absolute; top:14px; right:12px; background:rgba(0,0,0,.55); border:none; color:#fff; font-size:1rem; width:38px; height:38px; border-radius:50%; cursor:pointer; }
+  .fspin { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:44px; height:44px; border:4px solid rgba(255,255,255,.15); border-top-color:#e8b84b; border-radius:50%; animation:frot .8s linear infinite; pointer-events:none; display:none; }
+  .fpause { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:3rem; color:rgba(255,255,255,.85); text-shadow:0 2px 12px #000; pointer-events:none; display:none; }
+  @keyframes frot { to { transform:translate(-50%,-50%) rotate(360deg); } }
   #feedExit { position:absolute; top:14px; left:14px; z-index:9; background:rgba(0,0,0,.55); border:1px solid #3a3a4a; color:#eee; font-size:.8rem; padding:7px 14px; border-radius:999px; cursor:pointer; }
   #feedExit:hover { border-color:#777; }
   @media (min-width:600px) { #grid { grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:14px; } }
@@ -174,16 +178,21 @@ for (const c of clips) {
 const feed = document.getElementById('feed');
 const feedScroll = document.getElementById('feedScroll');
 const modeBtn = document.getElementById('modeBtn');
-let feedMode = false;
+let feedMode = false, soundOn = false;
 function feedCard(c) {
   const el = document.createElement('div');
   el.className = 'fcard'; el.dataset.file = c.file;
   const v = document.createElement('video');
-  v.loop = true; v.playsInline = true; v.muted = true; v.preload = 'none';
+  v.loop = true; v.playsInline = true; v.muted = true; v.preload = 'metadata';
   if (c.poster) v.poster = '/clips-media/' + c.poster;
-  el.appendChild(v);
+  const spin = document.createElement('div'); spin.className = 'fspin';
+  const pp = document.createElement('div'); pp.className = 'fpause'; pp.textContent = '▶';
+  v.addEventListener('waiting', () => { spin.style.display = 'block'; });
+  v.addEventListener('playing', () => { spin.style.display = 'none'; pp.style.display = 'none'; });
+  v.addEventListener('pause', () => { spin.style.display = 'none'; if (feedActive === el) pp.style.display = 'block'; });
+  el.append(v, spin, pp);
   const mute = document.createElement('button'); mute.className = 'mute'; mute.textContent = '🔇';
-  mute.onclick = () => { v.muted = !v.muted; mute.textContent = v.muted ? '🔇' : '🔊'; if (!v.muted) v.play().catch(() => {}); };
+  mute.onclick = () => { v.muted = !v.muted; soundOn = !v.muted; mute.textContent = v.muted ? '🔇' : '🔊'; if (!v.muted) v.play().catch(() => {}); };
   el.appendChild(mute);
   if (c.joke) {
     const jk = document.createElement('div'); jk.className = 'fjoke'; jk.textContent = c.joke;
@@ -205,22 +214,64 @@ function feedCard(c) {
   feedPaint[c.id]();
   return el;
 }
+let feedActive = null, feedTimer = null;
 const feedIO = new IntersectionObserver(es => {
   for (const e of es) {
     const v = e.target.querySelector('video');
     if (!v) continue;
-    if (e.intersectionRatio >= .6) { if (!v.src) v.src = '/clips-media/' + e.target.dataset.file; v.play().catch(() => {}); }
-    else if (e.intersectionRatio > 0) { if (!v.src) v.src = '/clips-media/' + e.target.dataset.file; }
-    else v.pause();
+    if (e.intersectionRatio >= .85) { // margin-boosted neighbors top out at .8 — only the on-screen card qualifies
+      if (!v.src) v.src = '/clips-media/' + e.target.dataset.file;
+      if (feedActive === e.target) continue;
+      feedActive = e.target;
+      clearTimeout(feedTimer);
+      const card = e.target;
+      feedTimer = setTimeout(() => { // only the settled card plays — blips while scrolling past don't count
+        if (feedActive !== card) return;
+        feedScroll.querySelectorAll('video').forEach(x => { if (x !== v) { x.pause(); x.muted = true; } });
+        v.muted = !soundOn;
+        const m = card.querySelector('.mute');
+        if (m) m.textContent = v.muted ? '🔇' : '🔊';
+        if (v.readyState < 3) card.querySelector('.fspin').style.display = 'block'; // buffer spinner until the real clip is ready
+        v.play().catch(() => {});
+      }, 220);
+    } else {
+      if (e.intersectionRatio > 0 && !v.src) { v.src = '/clips-media/' + e.target.dataset.file; v.preload = 'auto'; } // actually buffer neighbors inside the margin
+      v.pause(); v.muted = true; // anything off-center is silent — only the clip in view may sound
+      if (feedActive === e.target) feedActive = null;
+    }
   }
-}, { root: feedScroll, rootMargin: '80% 0px', threshold: [0, .6] });
+}, { root: feedScroll, rootMargin: '80% 0px', threshold: [0, .85] });
 function buildFeed() {
   feedScroll.querySelectorAll('.fcard').forEach(el => feedIO.unobserve(el));
   feedScroll.innerHTML = '';
   for (const c of clips) { const el = feedCard(c); feedScroll.appendChild(el); feedIO.observe(el); }
 }
 function feedIdx() { return Math.round(feedScroll.scrollTop / Math.max(1, feedScroll.clientHeight)); }
-function feedGo(i) { feedScroll.scrollTo({ top: i * feedScroll.clientHeight, behavior: 'smooth' }); }
+// discrete paging — one gesture = one clip, never parked between two
+let jumpLock = false;
+function feedJump(d) {
+  const i = feedIdx();
+  const n = Math.max(0, Math.min(clips.length - 1, i + d));
+  if (n === i) return;
+  feedActive = null; clearTimeout(feedTimer);
+  feedScroll.querySelectorAll('video').forEach(v => { v.pause(); v.muted = true; }); // hard-mute everything during the handoff
+  feedScroll.scrollTo({ top: n * feedScroll.clientHeight, behavior: 'instant' });
+}
+feedScroll.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (jumpLock) return;
+  jumpLock = true; setTimeout(() => jumpLock = false, 280);
+  feedJump(e.deltaY > 0 ? 1 : -1);
+}, { passive: false });
+let tY = null;
+feedScroll.addEventListener('pointerdown', e => { if (!e.target.closest('button')) tY = e.clientY; });
+feedScroll.addEventListener('pointerup', e => {
+  if (tY == null) return;
+  const dy = e.clientY - tY; tY = null;
+  if (Math.abs(dy) > 60) { feedJump(dy < 0 ? 1 : -1); return; }
+  const card = e.target.closest('.fcard'), v = card?.querySelector('video'); // tap = play/pause toggle
+  if (v && feedActive === card) { v.paused ? v.play().catch(() => {}) : v.pause(); }
+});
 function toggleFeed(on) {
   feedMode = on;
   feed.hidden = !on;
@@ -241,8 +292,8 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { if (feedMode) toggleFeed(false); else close(); return; }
   if (!feedMode) return;
   const i = feedIdx();
-  if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); feedGo(Math.min(i + 1, clips.length - 1)); }
-  if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); feedGo(Math.max(i - 1, 0)); }
+  if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); feedJump(1); }
+  if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); feedJump(-1); }
   if (e.key === 'ArrowRight' && clips[i]) castVote('up', clips[i]);
   if (e.key === 'ArrowLeft' && clips[i]) castVote('down', clips[i]);
 });

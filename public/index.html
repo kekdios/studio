@@ -143,7 +143,6 @@
   .pane .pjoke { background:#16161f; border:1px solid #2a2a3a; border-radius:12px; padding:12px 14px; font-size:.9rem; line-height:1.45; }
   .pane .pjoke .ptag { font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; color:#e8b84b; margin-bottom:6px; }
   .pane .picklist { display:flex; flex-direction:column; gap:8px; }
-  .pane .picklist.scroll { max-height:27em; overflow-y:auto; padding-right:4px; }
   .pane .pickrow { background:#16161f; border:1px solid #2a2a3a; border-radius:10px; padding:10px 12px; font-size:.82rem; display:flex; gap:10px; align-items:center; cursor:pointer; }
   .pane .pickrow:hover { border-color:#555; }
   .pane .pickrow span { flex:1; }
@@ -1271,25 +1270,6 @@ function renderVideo() {
         videoPane.appendChild(lockRow(j, renderStage));
       }
     }
-  }
-  // other takes parked at this step
-  const others = (jokesCache?.accepted || []).filter(x => x.id !== currentId && atVideoStep(x.render))
-    .sort((a, b) => Date.parse(b.render.stepStarted || b.render.ts || 0) - Date.parse(a.render.stepStarted || a.render.ts || 0));
-  if (others.length) {
-    videoPane.appendChild(hintEl(`also at the video step (${others.length}):`));
-    const pl = document.createElement('div'); pl.className = 'picklist scroll';
-    for (const x of others) {
-      const r = x.render;
-      const tag = r.status === 'awaiting_publish' ? 'review' : r.status === 'awaiting_fallback' ? 'backup?'
-        : r.status === 'done' ? 'live' : ['error', 'interrupted'].includes(r.status) ? '✗ retry'
-        : `⏳ ${r.step || ''}`;
-      const row = document.createElement('div'); row.className = 'pickrow';
-      row.innerHTML = `<span></span><b>${tag}</b>`;
-      row.querySelector('span').textContent = x.text;
-      row.onclick = () => startProduction(x.id);
-      pl.appendChild(row);
-    }
-    videoPane.appendChild(pl);
   }
 }
 
