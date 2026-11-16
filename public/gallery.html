@@ -39,6 +39,23 @@
   #lbClose { position:absolute; top:14px; right:16px; background:none; border:none; color:#aaa; font-size:2rem; cursor:pointer; line-height:1; }
   .empty { grid-column:1/-1; text-align:center; color:#666; padding:60px 20px; }
   .note { text-align:center; font-size:.72rem; color:#666; padding:10px 20px 30px; }
+  header button.mode { margin-left:auto; font-size:.8rem; color:#eee; background:#1c1c26; border:1px solid #3a3a4a; padding:6px 12px; border-radius:999px; cursor:pointer; }
+  header button.mode:hover { border-color:#666; }
+  header button.mode + a.room { margin-left:0; }
+  #feed { position:fixed; inset:0; background:#0a0a0f; z-index:8; }
+  #feedScroll { height:100%; overflow-y:scroll; scroll-snap-type:y mandatory; }
+  .fcard { position:relative; height:100%; scroll-snap-align:start; scroll-snap-stop:always; background:#000; display:flex; align-items:center; justify-content:center; }
+  .fcard video { width:100%; height:100%; object-fit:contain; background:#000; }
+  .frail { position:absolute; right:10px; bottom:96px; display:flex; flex-direction:column; gap:14px; }
+  .frail button { display:flex; flex-direction:column; align-items:center; gap:2px; background:rgba(0,0,0,.45); border:1px solid #3a3a4a; color:#ccc; font-size:1.3rem; width:52px; padding:9px 0; border-radius:14px; cursor:pointer; }
+  .frail button span { font-size:.68rem; color:#999; }
+  .frail button:hover { border-color:#777; color:#fff; }
+  .frail button.up.mine { border-color:#2d7a4f; color:#3ddc84; background:rgba(23,58,38,.7); }
+  .frail button.dn.mine { border-color:#7a2d2d; color:#e2483d; background:rgba(58,23,23,.7); }
+  .fjoke { position:absolute; left:14px; right:76px; bottom:18px; font-size:.85rem; line-height:1.45; color:#eee; text-shadow:0 1px 6px #000; }
+  .fcard .mute { position:absolute; top:14px; right:12px; background:rgba(0,0,0,.55); border:none; color:#fff; font-size:1rem; width:38px; height:38px; border-radius:50%; cursor:pointer; }
+  #feedExit { position:absolute; top:14px; left:14px; z-index:9; background:rgba(0,0,0,.55); border:1px solid #3a3a4a; color:#eee; font-size:.8rem; padding:7px 14px; border-radius:999px; cursor:pointer; }
+  #feedExit:hover { border-color:#777; }
   @media (min-width:600px) { #grid { grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:14px; } }
 </style>
 </head>
@@ -46,9 +63,14 @@
 <header>
   <img src="/reelenderlogosq.png" alt="">
   <div><h1>Jacob</h1><div class="sub">Traveling Joker</div></div>
+  <button class="mode" id="modeBtn">⇄ scroll</button>
   <a class="room" href="/room">joke room</a>
 </header>
 <div id="grid"><div class="empty">loading…</div></div>
+<div id="feed" hidden>
+  <div id="feedScroll"></div>
+  <button id="feedExit">▦ grid</button>
+</div>
 <div class="note">all of Jacob's clips are open source — use them for whatever you want</div>
 <div id="lightbox">
   <button id="lbClose" aria-label="close">&times;</button>
@@ -86,11 +108,17 @@ function paintVotes(votes, myVote) {
   voteUp.className = myVote === 'up' ? 'mine up' : '';
   voteDown.className = myVote === 'down' ? 'mine down' : '';
 }
-async function castVote(vote) {
-  if (!currentClip) return;
-  const r = await fetch('/api/clips/vote', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:currentClip.id, vote}) });
+const voteEls = {}, feedPaint = {};
+function paintTileVote(c) {
+  const vc = voteEls[c.id]; if (!vc) return;
+  const up = c.votes?.up || 0, down = c.votes?.down || 0;
+  vc.innerHTML = `<span class="u"${c.myVote === 'up' ? ' style="color:#3ddc84"' : ''}>👍 ${up}</span> · <span class="d"${c.myVote === 'down' ? ' style="color:#e2483d"' : ''}>👎 ${down}</span>`;
+}
+async function castVote(vote, clip = currentClip) {
+  if (!clip) return;
+  const r = await fetch('/api/clips/vote', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:clip.id, vote}) });
   const d = await r.json();
-  if (r.ok) { currentClip.votes = d.votes; currentClip.myVote = d.myVote; paintVotes(d.votes, d.myVote); }
+  if (r.ok) { clip.votes = d.votes; clip.myVote = d.myVote; if (clip === currentClip) paintVotes(d.votes, d.myVote); paintTileVote(clip); feedPaint[clip.id]?.(); }
 }
 voteUp.onclick = () => castVote('up');
 voteDown.onclick = () => castVote('down');
@@ -137,14 +165,87 @@ for (const c of clips) {
   cell.appendChild(tile);
   const vc = document.createElement('div');
   vc.className = 'vcount';
-  const up = c.votes?.up || 0, down = c.votes?.down || 0;
-  vc.innerHTML = `<span class="u">👍 ${up}</span> · <span class="d">👎 ${down}</span>`;
+  voteEls[c.id] = vc;
+  paintTileVote(c);
   cell.appendChild(vc);
   grid.appendChild(cell);
 }
+// --- scroll feed (tiktok-style) ---
+const feed = document.getElementById('feed');
+const feedScroll = document.getElementById('feedScroll');
+const modeBtn = document.getElementById('modeBtn');
+let feedMode = false;
+function feedCard(c) {
+  const el = document.createElement('div');
+  el.className = 'fcard'; el.dataset.file = c.file;
+  const v = document.createElement('video');
+  v.loop = true; v.playsInline = true; v.muted = true; v.preload = 'none';
+  if (c.poster) v.poster = '/clips-media/' + c.poster;
+  el.appendChild(v);
+  const mute = document.createElement('button'); mute.className = 'mute'; mute.textContent = '🔇';
+  mute.onclick = () => { v.muted = !v.muted; mute.textContent = v.muted ? '🔇' : '🔊'; if (!v.muted) v.play().catch(() => {}); };
+  el.appendChild(mute);
+  if (c.joke) {
+    const jk = document.createElement('div'); jk.className = 'fjoke'; jk.textContent = c.joke;
+    el.appendChild(jk);
+  }
+  const rail = document.createElement('div'); rail.className = 'frail';
+  const up = document.createElement('button'); up.className = 'up'; up.innerHTML = '👍<span></span>';
+  const dn = document.createElement('button'); dn.className = 'dn'; dn.innerHTML = '👎<span></span>';
+  feedPaint[c.id] = () => {
+    up.querySelector('span').textContent = c.votes?.up || 0;
+    dn.querySelector('span').textContent = c.votes?.down || 0;
+    up.classList.toggle('mine', c.myVote === 'up');
+    dn.classList.toggle('mine', c.myVote === 'down');
+  };
+  up.onclick = () => castVote('up', c);
+  dn.onclick = () => castVote('down', c);
+  rail.append(up, dn);
+  el.appendChild(rail);
+  feedPaint[c.id]();
+  return el;
+}
+const feedIO = new IntersectionObserver(es => {
+  for (const e of es) {
+    const v = e.target.querySelector('video');
+    if (!v) continue;
+    if (e.intersectionRatio >= .6) { if (!v.src) v.src = '/clips-media/' + e.target.dataset.file; v.play().catch(() => {}); }
+    else if (e.intersectionRatio > 0) { if (!v.src) v.src = '/clips-media/' + e.target.dataset.file; }
+    else v.pause();
+  }
+}, { root: feedScroll, rootMargin: '80% 0px', threshold: [0, .6] });
+function buildFeed() {
+  feedScroll.querySelectorAll('.fcard').forEach(el => feedIO.unobserve(el));
+  feedScroll.innerHTML = '';
+  for (const c of clips) { const el = feedCard(c); feedScroll.appendChild(el); feedIO.observe(el); }
+}
+function feedIdx() { return Math.round(feedScroll.scrollTop / Math.max(1, feedScroll.clientHeight)); }
+function feedGo(i) { feedScroll.scrollTo({ top: i * feedScroll.clientHeight, behavior: 'smooth' }); }
+function toggleFeed(on) {
+  feedMode = on;
+  feed.hidden = !on;
+  if (on) {
+    if (feedScroll.children.length !== clips.length) buildFeed();
+    const fi = clips.findIndex(c => !c.myVote);
+    if (fi > 0) feedScroll.scrollTop = fi * feedScroll.clientHeight;
+    else feedScroll.scrollTop = 0;
+  } else {
+    feedScroll.querySelectorAll('video').forEach(v => v.pause());
+  }
+}
+modeBtn.onclick = () => toggleFeed(true);
+document.getElementById('feedExit').onclick = () => toggleFeed(false);
 document.getElementById('lbClose').onclick = close;
 lb.onclick = e => { if (e.target === lb) close(); };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { if (feedMode) toggleFeed(false); else close(); return; }
+  if (!feedMode) return;
+  const i = feedIdx();
+  if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); feedGo(Math.min(i + 1, clips.length - 1)); }
+  if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); feedGo(Math.max(i - 1, 0)); }
+  if (e.key === 'ArrowRight' && clips[i]) castVote('up', clips[i]);
+  if (e.key === 'ArrowLeft' && clips[i]) castVote('down', clips[i]);
+});
 })();
 </script>
 </body>

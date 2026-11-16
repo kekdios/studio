@@ -57,6 +57,17 @@
   .vscenes .banktag { position:absolute; top:4px; left:4px; background:rgba(0,0,0,.65); color:#3ddc84; font-size:.6rem; padding:2px 6px; border-radius:6px; pointer-events:none; }
   .vscenes .cellbtn { position:absolute; top:4px; right:4px; background:rgba(0,0,0,.65); border:none; color:#fff; font-size:.7rem; padding:2px 7px; border-radius:6px; cursor:pointer; }
   .vscenes .cellbtn:hover { background:rgba(0,0,0,.85); }
+  #zoom { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center; z-index:20; }
+  #zoom.open { display:flex; }
+  #zimg { max-width:92vw; max-height:76vh; border-radius:12px; border:1px solid #23232f; }
+  #zclose { position:absolute; top:14px; right:16px; background:none; border:none; color:#aaa; font-size:2rem; cursor:pointer; line-height:1; }
+  #zprev, #znext { position:absolute; top:50%; transform:translateY(-50%); background:rgba(0,0,0,.5); border:1px solid #333; color:#ccc; font-size:1.6rem; width:44px; height:44px; border-radius:50%; cursor:pointer; }
+  #zprev { left:12px; } #znext { right:12px; }
+  #zprev:hover, #znext:hover { color:#fff; border-color:#666; }
+  #zbar { position:absolute; bottom:18px; left:0; right:0; display:flex; gap:16px; align-items:center; justify-content:center; }
+  #zcount { color:#888; font-size:.8rem; }
+  #zuse { background:#1c1c26; border:1px solid #3a3a4a; color:#eee; padding:9px 20px; border-radius:999px; cursor:pointer; font-size:.85rem; }
+  #zuse.prod { background:#173a26; border-color:#2d7a4f; color:#3ddc84; }
   .rform { width:100%; display:flex; flex-direction:column; gap:10px; }
   .switch { display:inline-flex; align-items:center; gap:7px; cursor:pointer; font-size:.8rem; color:#aaa; user-select:none; }
   .switch input { display:none; }
@@ -132,6 +143,7 @@
   .pane .pjoke { background:#16161f; border:1px solid #2a2a3a; border-radius:12px; padding:12px 14px; font-size:.9rem; line-height:1.45; }
   .pane .pjoke .ptag { font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; color:#e8b84b; margin-bottom:6px; }
   .pane .picklist { display:flex; flex-direction:column; gap:8px; }
+  .pane .picklist.scroll { max-height:27em; overflow-y:auto; padding-right:4px; }
   .pane .pickrow { background:#16161f; border:1px solid #2a2a3a; border-radius:10px; padding:10px 12px; font-size:.82rem; display:flex; gap:10px; align-items:center; cursor:pointer; }
   .pane .pickrow:hover { border-color:#555; }
   .pane .pickrow span { flex:1; }
@@ -151,6 +163,18 @@
   #textRow input { flex:1; background:#1c1c26; border:1px solid #333; border-radius:8px; color:#eee; padding:8px 12px; font-size:.9rem; }
   #textRow button { background:#2a2a3a; border:1px solid #444; color:#ddd; padding:8px 14px; border-radius:8px; cursor:pointer; }
   .joke .actions { flex-wrap:wrap; }
+  .dcols { display:flex; flex-direction:column; gap:14px; }
+  .dcols > * { min-width:0; }
+  .dcols .dmain { display:flex; flex-direction:column; gap:10px; }
+  .dcols .dside { display:flex; flex-direction:column; gap:14px; }
+  @media (min-width:1100px) {
+    .pane { max-width:1180px; }
+    #transcript { max-width:920px; }
+    #vaultCard { max-width:720px; }
+    .dcols { display:grid; grid-template-columns:1.15fr 1fr; gap:26px; align-items:start; }
+    .take { width:min(420px,90vw); }
+    .sceneBig { width:min(360px,80%); }
+  }
   @media (max-width:520px) {
     header { padding:10px 12px; gap:8px; }
     header .sub { display:none; }
@@ -218,6 +242,14 @@
     <input id="textInput" placeholder="direct the scout — 'more puns', 'work jokes'… or just talk" />
     <button id="sendText">send</button>
   </div>
+</div>
+
+<div id="zoom">
+  <button id="zclose" aria-label="close">&times;</button>
+  <button id="zprev" aria-label="previous">‹</button>
+  <img id="zimg" alt="still preview">
+  <button id="znext" aria-label="next">›</button>
+  <div id="zbar"><span id="zcount"></span><button id="zuse">use this still</button></div>
 </div>
 
 <script>
@@ -607,6 +639,35 @@ function currentJoke() {
     .find(j => j.id === currentId) || null;
 }
 const sigOf = j => j?.render ? `${j.render.status}:${j.render.step || ''}:${(j.render.scenes || []).length}` : '';
+// all take versions that exist on a job, in production order
+function takesList(r) {
+  const work = r.workFile || 'final.mp4';
+  const cc = r.ccFile || 'final-captioned.mp4';
+  const t = [{ file: 'final.mp4', label: '1 · original' }];
+  if (work === 'final-edited.mp4') t.push({ file: work, label: `2 · edited${r.editModel ? ' · ' + r.editModel : ''}` });
+  if (r.captionTemplate) t.push({ file: cc, label: `${t.length + 1} · captions · ${r.captionTemplate}` });
+  return t;
+}
+// video wall of takes; onPick(file) makes them selectable, null = view-only; compact = small thumbs for the running view
+function takesGrid(r, selected, onPick, compact) {
+  const grid = document.createElement('div'); grid.className = 'vscenes';
+  const takes = takesList(r);
+  grid.style.gridTemplateColumns = compact ? 'repeat(auto-fill, minmax(130px, 170px))' : `repeat(${takes.length},1fr)`;
+  for (const t of takes) {
+    const cell = document.createElement('div'); cell.className = 'scell';
+    const vv = document.createElement('video');
+    vv.src = `/renders-media/${r.id}/${t.file}`; vv.controls = true; vv.playsInline = true; vv.preload = 'metadata';
+    vv.style.cssText = 'width:100%;border-radius:8px;border:2px solid ' + (t.file === selected ? '#3ddc84' : 'transparent') + ';display:block' + (onPick ? ';cursor:pointer' : '');
+    if (onPick) vv.onclick = () => {
+      onPick(t.file);
+      grid.querySelectorAll('video').forEach(x => x.style.borderColor = 'transparent');
+      vv.style.borderColor = '#3ddc84';
+    };
+    const tag = document.createElement('span'); tag.className = 'banktag'; tag.textContent = t.label;
+    cell.append(vv, tag); grid.appendChild(cell);
+  }
+  return grid;
+}
 const atVideoStep = r => r && (r.status === 'awaiting_publish' || r.status === 'awaiting_fallback' || r.status === 'done'
   || (r.status === 'running' && ['render', 'publish', 'caption', 'edit'].includes(r.step))
   || (['error', 'interrupted'].includes(r.status) && ['render', 'caption', 'edit'].includes(r.step)));
@@ -842,22 +903,55 @@ function renderPromptEditor(pane, j, draft) {
   };
 }
 
+// still zoom overlay — inspect a scene big, ‹ › flip through, pick inside
+const zoomEl = document.getElementById('zoom'), zimgEl = document.getElementById('zimg'),
+  zuseEl = document.getElementById('zuse'), zcountEl = document.getElementById('zcount');
+let zoomCtl = null; // {scenes, i, dead, picked, onPick}
+function paintZoom() {
+  const z = zoomCtl; if (!z) return;
+  zimgEl.src = z.scenes[z.i];
+  zcountEl.textContent = `${z.i + 1} / ${z.scenes.length}`;
+  const isPicked = z.picked === z.i;
+  zuseEl.textContent = z.dead.has(z.i) ? 'removed from bank' : isPicked ? '✓ picked — tap to unpick' : 'use this still';
+  zuseEl.className = isPicked ? 'prod' : '';
+  zuseEl.disabled = z.dead.has(z.i);
+}
+function zoomStep(d) {
+  const z = zoomCtl; if (!z || z.scenes.length < 2) return;
+  const n = z.scenes.length; let k = z.i;
+  do { k = (k + d + n) % n; } while (z.dead.has(k));
+  z.i = k; paintZoom();
+}
+document.getElementById('zclose').onclick = () => zoomEl.classList.remove('open');
+document.getElementById('zprev').onclick = () => zoomStep(-1);
+document.getElementById('znext').onclick = () => zoomStep(1);
+zoomEl.onclick = e => { if (e.target === zoomEl) zoomEl.classList.remove('open'); };
+zuseEl.onclick = () => { const z = zoomCtl; if (!z || z.dead.has(z.i)) return; z.picked = z.picked === z.i ? -1 : z.i; z.onPick(z.picked); paintZoom(); };
+document.addEventListener('keydown', e => {
+  if (!zoomEl.classList.contains('open')) return;
+  if (e.key === 'Escape') zoomEl.classList.remove('open');
+  if (e.key === 'ArrowRight') zoomStep(1);
+  if (e.key === 'ArrowLeft') zoomStep(-1);
+});
+
 function renderStillGate(pane, j, locked) {
   const r = j.render;
   const wrap = document.createElement('div'); wrap.className = 'rform';
   const grid = document.createElement('div'); grid.className = 'vscenes';
   let picked = r.pick ?? -1;
   const dead = new Set(); // cells removed from the bank mid-gate stay index-stable but unpickable
+  const imgs = [];
+  const paintPick = () => { imgs.forEach((x, k) => x && x.classList.toggle('pick', k === picked)); go.classList.toggle('prod', picked >= 0); };
   (r.scenes || []).forEach((u, i) => {
     const cell = document.createElement('div'); cell.className = 'scell';
     const img = document.createElement('img');
     img.src = u; img.loading = 'lazy'; img.alt = `still ${i + 1}`;
     if (i === picked) img.classList.add('pick');
+    imgs[i] = img;
     img.onclick = () => {
       if (dead.has(i)) return;
-      if (picked === i) { picked = -1; img.classList.remove('pick'); go.classList.remove('prod'); return; } // tap again to unpick
-      picked = i; grid.querySelectorAll('img').forEach(x => x.classList.remove('pick')); img.classList.add('pick');
-      go.classList.add('prod');
+      zoomCtl = { scenes: r.scenes, i, dead, picked, onPick: p => { picked = p; paintPick(); } };
+      paintZoom(); zoomEl.classList.add('open');
     };
     cell.appendChild(img);
     const bankId = (r.sceneBankIds || [])[i];
@@ -903,10 +997,16 @@ function renderStillGate(pane, j, locked) {
   cancel.title = 'scrap these stills and this job, back to direction';
   const st = document.createElement('div'); st.className = 'rstatus';
   st.textContent = r.sceneSource === 'bank'
-    ? 'tap a bank still (tap again to unpick) — free — or edit the prompt and generate new'
-    : 'tap a still (tap again to unpick) — ☆ saves it to the bank — or edit the prompt and reroll';
+    ? 'tap a bank still to inspect it — pick it in the preview — free — or edit the prompt and generate new'
+    : 'tap a still to inspect it — pick it in the preview — ☆ saves it to the bank — or edit the prompt and reroll';
   rr.append(again, bank, go, cancel);
-  wrap.append(grid, lp, ta, lm, mo, st, rr);
+  const cols = document.createElement('div'); cols.className = 'dcols';
+  const dmain = document.createElement('div'); dmain.className = 'dmain';
+  const dside = document.createElement('div'); dside.className = 'dside';
+  dmain.appendChild(grid);
+  dside.append(lp, ta, lm, mo, st, rr);
+  cols.append(dmain, dside);
+  wrap.appendChild(cols);
   pane.appendChild(wrap);
   const busy = msg => { st.className = 'rstatus'; st.replaceChildren(workingEl(msg)); };
   const note = (msg, err) => { st.className = 'rstatus' + (err ? ' err' : ''); st.textContent = msg; };
@@ -973,9 +1073,11 @@ function renderVideo() {
     if (r.status === 'running') {
       videoPane.appendChild(workingEl(r.step === 'publish' ? 'publishing to the gallery…'
         : r.step === 'caption' ? 'burning captions into the take…'
-        : r.step === 'edit' ? 'grok is re-cutting the take…'
+        : r.step === 'edit' ? `${r.editModel || ((r.videoSecs || r.audioSecs || 0) > 8 ? 'seedance' : 'grok')} is re-cutting the take…`
         : 'video agent is generating your video'));
       tickLine(videoPane, j);
+      // keep the existing versions visible as small thumbs while a post-step runs — the take isn't gone, it's being worked on
+      if (['edit', 'caption'].includes(r.step)) videoPane.appendChild(takesGrid(r, null, null, true));
     }
     if (['error', 'interrupted'].includes(r.status) && ['render', 'caption', 'edit'].includes(r.step)) {
       videoPane.appendChild(hintEl(`✗ ${r.step === 'caption' ? 'caption' : r.step === 'edit' ? 'edit' : 'render'} ${r.status}: ${r.error || ''}`));
@@ -1025,36 +1127,22 @@ function renderVideo() {
       const dur = renderDur(r);
       if (dur) videoPane.appendChild(hintEl(`rendered in ${dur}${r.viaBackup ? ` · ${r.avatarModel} (short-read backup)` : ''}`));
       const work = r.workFile || 'final.mp4';
-      const cc = r.ccFile || 'final-captioned.mp4';
+      // takes wall on the left, edit/publish/caption controls on the right (stacks on small screens)
+      const cols = document.createElement('div'); cols.className = 'dcols';
+      const dmain = document.createElement('div'); dmain.className = 'dmain';
+      const dside = document.createElement('div'); dside.className = 'dside';
+      cols.append(dmain, dside);
+      videoPane.appendChild(cols);
       // every version in production order — tap the one to ship
-      const takes = [{ file: 'final.mp4', label: '1 · original' }];
-      if (work === 'final-edited.mp4') takes.push({ file: work, label: `2 · edited${r.editModel ? ' · ' + r.editModel : ''}` });
-      if (r.captionTemplate) takes.push({ file: cc, label: `${takes.length + 1} · captions · ${r.captionTemplate}` });
+      const takes = takesList(r);
       let variant = takes[takes.length - 1].file; // newest version pre-selected
       if (takes.length > 1) {
-        const grid = document.createElement('div'); grid.className = 'vscenes';
-        grid.style.gridTemplateColumns = `repeat(${takes.length},1fr)`;
-        const mk = (file, label) => {
-          const cell = document.createElement('div'); cell.className = 'scell';
-          const vv = document.createElement('video');
-          vv.src = `/renders-media/${r.id}/${file}`; vv.controls = true; vv.playsInline = true; vv.preload = 'metadata';
-          vv.style.cssText = 'width:100%;border-radius:8px;border:2px solid ' + (file === variant ? '#3ddc84' : 'transparent') + ';display:block;cursor:pointer';
-          vv.onclick = () => {
-            variant = file;
-            grid.querySelectorAll('video').forEach(x => x.style.borderColor = 'transparent');
-            vv.style.borderColor = '#3ddc84';
-          };
-          const tag = document.createElement('span'); tag.className = 'banktag'; tag.textContent = label;
-          cell.append(vv, tag);
-          return cell;
-        };
-        takes.forEach(t => grid.appendChild(mk(t.file, t.label)));
-        videoPane.appendChild(grid);
-        videoPane.appendChild(hintEl('tap a take to pick which one ships to the gallery'));
+        dmain.appendChild(takesGrid(r, variant, f => { variant = f; }));
+        dmain.appendChild(hintEl('tap a take to pick which one ships to the gallery'));
       } else {
         const v = document.createElement('video');
         v.className = 'take'; v.src = r.clipPreview; v.controls = true; v.playsInline = true; v.preload = 'metadata';
-        videoPane.appendChild(v);
+        dmain.appendChild(v);
       }
       // optional grok edit — describe the change, it re-cuts the take (always from the raw render)
       const ew = document.createElement('div'); ew.className = 'rform';
@@ -1079,14 +1167,14 @@ function renderVideo() {
       er2.appendChild(osel);
       er2.appendChild(ed);
       ew.append(el2, ep, er2, est);
-      videoPane.appendChild(ew);
+      dside.appendChild(ew);
       const br = document.createElement('div'); br.className = 'rrow';
       const pub = document.createElement('button'); pub.className = 'prod'; pub.textContent = 'publish to gallery';
       const back = document.createElement('button'); back.textContent = '← back to stills';
       back.title = 'scrap this take, keep the stills';
       const bin = document.createElement('button'); bin.className = 'del'; bin.textContent = 'bin it';
       br.append(pub, back, bin);
-      videoPane.appendChild(br);
+      dside.appendChild(br);
       // optional captions — transcript box pre-fills with the joke (fixes mishears like "in tents"),
       // editable for rewording or another language; translate_to dubs the captions natively
       const cw = document.createElement('div'); cw.className = 'rform';
@@ -1112,7 +1200,7 @@ function renderVideo() {
       cw.append(cr, tbox);
       const cst = document.createElement('div'); cst.className = 'rstatus';
       cw.appendChild(cst);
-      videoPane.appendChild(cw);
+      dside.appendChild(cw);
       const lockRow = () => { pub.disabled = back.disabled = bin.disabled = cap.disabled = tsel.disabled = lsel.disabled = emo.disabled = tbox.disabled = ed.disabled = ep.disabled = osel.disabled = true; };
       const post = async (action, extra = {}) => { // network failure or hang must not freeze the gate
         try {
@@ -1185,13 +1273,18 @@ function renderVideo() {
     }
   }
   // other takes parked at this step
-  const others = (jokesCache?.accepted || []).filter(x => x.id !== currentId && atVideoStep(x.render));
+  const others = (jokesCache?.accepted || []).filter(x => x.id !== currentId && atVideoStep(x.render))
+    .sort((a, b) => Date.parse(b.render.stepStarted || b.render.ts || 0) - Date.parse(a.render.stepStarted || a.render.ts || 0));
   if (others.length) {
-    videoPane.appendChild(hintEl('also at the video step:'));
-    const pl = document.createElement('div'); pl.className = 'picklist';
+    videoPane.appendChild(hintEl(`also at the video step (${others.length}):`));
+    const pl = document.createElement('div'); pl.className = 'picklist scroll';
     for (const x of others) {
+      const r = x.render;
+      const tag = r.status === 'awaiting_publish' ? 'review' : r.status === 'awaiting_fallback' ? 'backup?'
+        : r.status === 'done' ? 'live' : ['error', 'interrupted'].includes(r.status) ? '✗ retry'
+        : `⏳ ${r.step || ''}`;
       const row = document.createElement('div'); row.className = 'pickrow';
-      row.innerHTML = `<span></span><b>${x.render.status === 'awaiting_publish' ? 'review' : '⏳'}</b>`;
+      row.innerHTML = `<span></span><b>${tag}</b>`;
       row.querySelector('span').textContent = x.text;
       row.onclick = () => startProduction(x.id);
       pl.appendChild(row);
@@ -1210,9 +1303,7 @@ function ensurePolling() {
     await refreshJokes();
     const j = currentJoke();
     if (sigOf(j) === prevSig) return;
-    if (j?.render?.status === 'awaiting_scene') setStage('image');       // gate needs you
-    else if (j?.render?.status === 'awaiting_publish' || j?.render?.status === 'awaiting_fallback') setStage('video'); // gate needs you
-    else renderStage();
+    renderStage(); // update in place — never teleport the director; the nav dots flag waiting gates
   }, 5000);
 }
 

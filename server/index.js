@@ -1125,6 +1125,7 @@ app.post('/api/jokes/render-action', (req, res) => {
     const prompt = String(req.body.prompt || '').trim();
     if (!prompt) return res.status(400).json({ error: 'describe the edit first' });
     delete job.gateError;
+    job.editPrompt = prompt; // save now — survives a failed edit so re-edit keeps your wording
     job.status = 'running'; saveRenderJobs();
     jobEdit(job, prompt, req.body.aspect_ratio)
       .then(() => { if (!cancelled(job)) job.status = 'awaiting_publish'; })
