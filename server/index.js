@@ -627,11 +627,11 @@ const scenePrompt = (setting, orient, framing = 'full-body') => {
 };
 
 // the producer brain drafts scene + motion from the joke itself; director edits before any spend
+// some brains refuse edgy jokes — fall back to the joke lab model before giving up
 async function aiPrompt(joke, settingHint, orient, framing) {
-  const model = MODELS.producer_brain.replace(/:online.*$/, '');
   const words = ORIENT_WORDS[orient] || ORIENT_WORDS['9:16'];
   const f = FRAMINGS[framing] || FRAMINGS['full-body'];
-  const r = await ng.chat([
+  const messages = [
     { role: 'system', content: `You write prompts for a recurring video character's daily joke clips.
 
 The character is LOCKED. Every "scene" prompt must begin with this exact identity clause:
@@ -643,10 +643,16 @@ scene: continue the identity clause with " standing in <SETTING THAT VISUALIZES 
 
 motion: ONE short animation direction for an audio-driven talking-avatar model. He tells the joke deadpan to camera, plus ONE concrete gesture timed to a word or object in THIS joke (point at it, look down at it, hold it up, glance behind him). Small and natural, static camera. One or two sentences, plain text.` },
     { role: 'user', content: `Joke: ${joke.text}${settingHint ? `\nSetting the director suggested: ${settingHint} — use or adapt it.` : '\nPick whichever setting suits the joke best.'}` },
-  ], model);
-  const d = JSON.parse(r.text.match(/\{[\s\S]*\}/)?.[0] || '{}');
-  if (!d.scene || !d.motion) throw new Error('incomplete prompt from AI');
-  return d;
+  ];
+  const models = [...new Set([MODELS.producer_brain, MODELS.joke_lab].map(m => (m || '').replace(/:online.*$/, '')))].filter(Boolean);
+  for (const model of models) {
+    try {
+      const r = await ng.chat(messages, model);
+      const d = JSON.parse(r.text.match(/\{[\s\S]*\}/)?.[0] || '{}');
+      if (d.scene && d.motion) return d;
+    } catch {}
+  }
+  throw new Error('no model drafted a prompt');
 }
 fs.mkdirSync(RENDERS_DIR, { recursive: true });
 app.use('/renders-media', express.static(RENDERS_DIR)); // authed: owner-only render artifacts
@@ -1016,7 +1022,7 @@ app.post('/api/jokes/render-preview', async (req, res) => {
     return res.json({ prompt: d.scene, defaultMotion: d.motion, framing: fram });
   } catch (e) {
     console.error('ai prompt draft failed, using template:', e.message);
-    res.json({ prompt: scenePrompt((setting || '').trim(), orient, fram), defaultMotion: DEFAULT_MOTION, framing: fram });
+    res.json({ prompt: scenePrompt((setting || '').trim(), orient, fram), defaultMotion: DEFAULT_MOTION, framing: fram, fallback: true });
   }
 });
 
