@@ -103,6 +103,9 @@
   .vrow textarea { width:100%; background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:8px 10px; font:inherit; font-size:.9rem; margin-bottom:8px; resize:vertical; }
   .vempty { text-align:center; color:#555; padding:40px 10px; font-size:.85rem; }
 
+  #voiceCard { display:none; max-width:760px; width:100%; margin:0 auto; padding:12px 20px 0; flex:none; }
+  #voiceCard .vrow { cursor:default; }
+  #voiceCard audio { width:100%; height:36px; }
   #transcript { flex:1; overflow-y:auto; overscroll-behavior:contain; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:760px; width:100%; margin:0 auto; }
   .turn { max-width:85%; padding:10px 14px; border-radius:14px; line-height:1.45; font-size:.95rem; white-space:pre-wrap; }
   .turn .who { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; opacity:.55; display:flex; gap:8px; align-items:center; }
@@ -173,6 +176,7 @@
     body { height:100vh; overflow:hidden; }
     .pane { max-width:1180px; }
     #transcript { max-width:920px; }
+    #voiceCard { max-width:920px; }
     #vault, #vault.open { position:static; inset:auto; background:none; display:block; padding:0; z-index:auto; width:420px; flex:none; }
     #vaultCard { max-width:none; height:100%; border-radius:0; border:none; border-right:1px solid #23232f; }
     #vaultBtn, #vaultClose { display:none; }
@@ -232,7 +236,7 @@
   <span id="workOn"></span>
 </nav>
 
-<section id="stage-voice"><div id="transcript"></div></section>
+<section id="stage-voice"><div id="voiceCard"></div><div id="transcript"></div></section>
 <section id="stage-image" hidden><div id="imagePane" class="pane"></div></section>
 <section id="stage-video" hidden><div id="videoPane" class="pane"></div></section>
 
@@ -731,9 +735,41 @@ document.querySelectorAll('#stageBar .stab').forEach(b => { b.onclick = () => se
 
 function renderStage() {
   clearInterval(liveTick); liveTick = null;
+  renderVoiceCard();
   if (stage === 'image') renderImage();
   else if (stage === 'video') renderVideo();
   updateNav();
+}
+
+// selected joke's voice read — player if audio exists, one-tap to voice it otherwise
+const voiceCardEl = document.getElementById('voiceCard');
+function renderVoiceCard() {
+  const j = currentJoke();
+  voiceCardEl.innerHTML = '';
+  if (!j) { voiceCardEl.style.display = 'none'; return; }
+  voiceCardEl.style.display = '';
+  const card = document.createElement('div'); card.className = 'vrow';
+  const txt = document.createElement('div'); txt.className = 'vtxt'; txt.textContent = j.text;
+  card.appendChild(txt);
+  const row = document.createElement('div'); row.className = 'vbtns';
+  if (j.audio) {
+    const a = document.createElement('audio');
+    a.controls = true; a.preload = 'none'; a.src = j.audio;
+    row.appendChild(a);
+  } else {
+    const play = document.createElement('button'); play.textContent = '🔊 hear Jacob';
+    play.onclick = async () => {
+      play.disabled = true; play.textContent = '…voicing…';
+      try {
+        const d = await (await fetch('/api/jokes/speak', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: j.id }) })).json();
+        if (d.audioUrl) { j.audio = d.audioUrl; renderVoiceCard(); return; }
+      } catch {}
+      play.disabled = false; play.textContent = '🔊 hear Jacob';
+    };
+    row.appendChild(play);
+  }
+  card.appendChild(row);
+  voiceCardEl.appendChild(card);
 }
 
 function startProduction(id) {
