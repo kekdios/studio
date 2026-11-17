@@ -52,7 +52,7 @@
   .vsteps .s.done { color:#3ddc84; border-color:#2d7a4f; }
   .vsteps .s.now { color:#e8b84b; border-color:#5a4a1a; }
   .vsteps .ar { color:#444; }
-  .vscenes { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:8px; }
+  .vscenes { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:8px; max-width:50%; }
   @media (max-width:640px) { .vscenes { grid-template-columns:1fr 1fr; } }
   .vscenes .scell { position:relative; }
   .vscenes img { width:100%; border-radius:8px; border:2px solid transparent; cursor:pointer; display:block; }
@@ -99,7 +99,7 @@
   .pane button.del:hover { background:#3a1717; }
   .pane button:disabled { opacity:.5; cursor:default; }
   .vrow .watch { font-size:.78rem; color:#e8b84b; text-decoration:none; border:1px solid #5a4a1a; padding:4px 10px; border-radius:6px; display:inline-block; margin-bottom:8px; }
-  .take { width:min(340px,90vw); max-height:62vh; border-radius:10px; border:1px solid #2a2a3a; background:#000; display:block; margin:4px 0 10px; }
+  .take { width:min(170px,90vw); max-height:62vh; border-radius:10px; border:1px solid #2a2a3a; background:#000; display:block; margin:4px 0 10px; }
   .vrow textarea { width:100%; background:#0d0d14; border:1px solid #555; border-radius:8px; color:#eee; padding:8px 10px; font:inherit; font-size:.9rem; margin-bottom:8px; resize:vertical; }
   .vempty { text-align:center; color:#555; padding:40px 10px; font-size:.85rem; }
 
@@ -149,7 +149,7 @@
   .pane .pickrow { background:#16161f; border:1px solid #2a2a3a; border-radius:10px; padding:10px 12px; font-size:.82rem; display:flex; gap:10px; align-items:center; cursor:pointer; }
   .pane .pickrow:hover { border-color:#555; }
   .pane .pickrow span { flex:1; }
-  .pane .sceneBig { width:min(300px,80%); border-radius:12px; align-self:center; border:1px solid #2a2a3a; }
+  .pane .sceneBig { width:min(150px,80%); border-radius:12px; align-self:center; border:1px solid #2a2a3a; }
   #controls { border-top:1px solid #1c1c26; padding:16px 20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
   #status { font-size:.8rem; color:#888; min-height:1.2em; }
   #btnRow { display:flex; gap:14px; align-items:center; }
@@ -177,8 +177,8 @@
     #vaultCard { max-width:none; height:100%; border-radius:0; border:none; border-right:1px solid #23232f; }
     #vaultBtn, #vaultClose { display:none; }
     .dcols { display:grid; grid-template-columns:1.15fr 1fr; gap:26px; align-items:start; }
-    .take { width:min(420px,90vw); }
-    .sceneBig { width:min(360px,80%); }
+    .take { width:min(210px,90vw); }
+    .sceneBig { width:min(180px,80%); }
   }
   @media (max-width:520px) {
     header { padding:10px 12px; gap:8px; }
@@ -673,7 +673,7 @@ function takesList(r) {
 function takesGrid(r, selected, onPick, compact) {
   const grid = document.createElement('div'); grid.className = 'vscenes';
   const takes = takesList(r);
-  grid.style.gridTemplateColumns = compact ? 'repeat(auto-fill, minmax(130px, 170px))' : `repeat(${takes.length},1fr)`;
+  grid.style.gridTemplateColumns = compact ? 'repeat(auto-fill, minmax(70px, 90px))' : `repeat(${takes.length},1fr)`;
   for (const t of takes) {
     const cell = document.createElement('div'); cell.className = 'scell';
     const vv = document.createElement('video');
