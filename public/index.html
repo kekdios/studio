@@ -749,7 +749,7 @@ const voiceCardEl = document.getElementById('voiceCard');
 function renderVoiceCard() {
   const j = currentJoke();
   voiceCardEl.innerHTML = '';
-  voiceCardEl.style.display = '';
+  voiceCardEl.style.display = 'block';
   if (!j) {
     const h = document.createElement('div'); h.className = 'phint';
     h.textContent = 'pick a joke in the vault — its voice read lives here';
