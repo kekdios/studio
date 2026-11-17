@@ -33,7 +33,8 @@
   #vaultHead .tab .n { opacity:.6; }
   #vaultClose { margin-left:auto; background:none; border:none; color:#aaa; font-size:1.5rem; cursor:pointer; line-height:1; }
   #vaultList { flex:1; overflow-y:auto; overscroll-behavior:contain; padding:12px; display:flex; flex-direction:column; gap:10px; }
-  .vrow { background:#16161f; border:1px solid #2a2a3a; border-radius:12px; padding:10px 12px; }
+  .vrow { background:#16161f; border:1px solid #2a2a3a; border-radius:12px; padding:10px 12px; cursor:pointer; }
+  .vrow.sel { border-color:#5b5bd6; box-shadow:0 0 0 1px #5b5bd6; }
   .vrow.produced { border-color:#2d7a4f; }
   .vrow .vtxt { font-size:.9rem; line-height:1.45; margin-bottom:8px; white-space:pre-wrap; }
   .vrow .vflag { font-size:.68rem; color:#3ddc84; font-weight:600; }
@@ -586,7 +587,13 @@ function renderVault() {
   for (const j of items) {
     const row = document.createElement('div');
     const active = j.render && RENDER_ACTIVE.has(j.render.status);
-    row.className = 'vrow' + (j.produced ? ' produced' : '') + (active ? ' hot' : '');
+    row.className = 'vrow' + (j.produced ? ' produced' : '') + (active ? ' hot' : '') + (j.id === currentId ? ' sel' : '');
+    row.dataset.id = j.id;
+    // tapping a row selects the joke and snaps the right side to its pipeline stage
+    row.onclick = e => {
+      if (e.target.closest('button, a, textarea')) return;
+      selectJoke(j.id);
+    };
     if (j.produced) {
       const f = document.createElement('div'); f.className = 'vflag'; f.textContent = '✓ produced';
       row.appendChild(f);
@@ -736,6 +743,17 @@ function startProduction(id) {
   vaultEl.classList.remove('open');
   setStage(r && atVideoStep(r) ? 'video' : 'image');
   ensurePolling();
+  paintVaultSel();
+}
+
+// the vault is the joke picker — selection drives which stage tab shows on the right
+function selectJoke(id) {
+  jokesCache = vaultData;
+  startProduction(id);
+}
+
+function paintVaultSel() {
+  vaultList.querySelectorAll('.vrow').forEach(r => r.classList.toggle('sel', r.dataset.id === currentId));
 }
 
 function hintEl(text, cls) { const d = document.createElement('div'); d.className = 'phint' + (cls ? ' ' + cls : ''); d.textContent = text; return d; }
@@ -807,7 +825,7 @@ function renderImage() {
         : x.render.status === 'done' ? '✓ live' : x.render.status) : '🎬';
       row.innerHTML = `<span></span><b>${badge}</b>`;
       row.querySelector('span').textContent = x.text;
-      row.onclick = () => { currentId = x.id; localStorage.setItem('prodJoke', x.id); renderStage(); };
+      row.onclick = () => { currentId = x.id; localStorage.setItem('prodJoke', x.id); renderStage(); paintVaultSel(); };
       pl.appendChild(row);
     }
     if (!(jokesCache?.accepted || []).length) pl.appendChild(hintEl('nothing kept yet — go keep jokes in the voice step'));
@@ -1266,7 +1284,7 @@ function renderVideo() {
       const a = document.createElement('a'); a.className = 'watch'; a.href = '/clips'; a.target = '_blank'; a.textContent = 'see it on the wall ↗';
       const nx = document.createElement('button'); nx.textContent = 'next joke →';
       nx.style.alignSelf = 'flex-start';
-      nx.onclick = () => { currentId = null; localStorage.removeItem('prodJoke'); setStage('image'); };
+      nx.onclick = () => { currentId = null; localStorage.removeItem('prodJoke'); setStage('image'); paintVaultSel(); };
       videoPane.append(a, nx);
       if (unlocked.has(j.id)) {
         const ur = document.createElement('div'); ur.className = 'rrow';
