@@ -8,6 +8,8 @@
 <style>
   * { box-sizing: border-box; }
   body { margin:0; min-height:100vh; display:flex; flex-direction:column; background:#0a0a0f; color:#eee; font-family:-apple-system,system-ui,sans-serif; }
+  #layout { flex:1; display:flex; min-height:0; }
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }
   header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid #1c1c26; flex-wrap:wrap; row-gap:8px; }
   header img { height:36px; }
   header h1 { font-size:1rem; font-weight:600; margin:0; }
@@ -169,7 +171,9 @@
   @media (min-width:1100px) {
     .pane { max-width:1180px; }
     #transcript { max-width:920px; }
-    #vaultCard { max-width:720px; }
+    #vault, #vault.open { position:static; inset:auto; background:none; display:block; padding:0; z-index:auto; width:420px; flex:none; }
+    #vaultCard { max-width:none; height:100%; border-radius:0; border:none; border-right:1px solid #23232f; }
+    #vaultBtn, #vaultClose { display:none; }
     .dcols { display:grid; grid-template-columns:1.15fr 1fr; gap:26px; align-items:start; }
     .take { width:min(420px,90vw); }
     .sceneBig { width:min(360px,80%); }
@@ -197,18 +201,8 @@
   <button id="logout">log out</button>
 </header>
 
-<nav id="stageBar">
-  <button class="stab on" data-s="voice">1 · voice</button>
-  <button class="stab" data-s="image">2 · image</button>
-  <button class="stab" data-s="video" disabled>3 · video</button>
-  <span id="workOn"></span>
-</nav>
-
-<section id="stage-voice"><div id="transcript"></div></section>
-<section id="stage-image" hidden><div id="imagePane" class="pane"></div></section>
-<section id="stage-video" hidden><div id="videoPane" class="pane"></div></section>
-
-<div id="vault">
+<div id="layout">
+<aside id="vault">
   <div id="vaultCard">
     <div id="vaultHead">
       <button class="tab on" data-t="accepted">kept <span class="n" id="nKept"></span></button>
@@ -227,7 +221,18 @@
     </div>
     <div id="vaultList"></div>
   </div>
-</div>
+</aside>
+<div id="main">
+<nav id="stageBar">
+  <button class="stab on" data-s="voice">1 · voice</button>
+  <button class="stab" data-s="image">2 · image</button>
+  <button class="stab" data-s="video" disabled>3 · video</button>
+  <span id="workOn"></span>
+</nav>
+
+<section id="stage-voice"><div id="transcript"></div></section>
+<section id="stage-image" hidden><div id="imagePane" class="pane"></div></section>
+<section id="stage-video" hidden><div id="videoPane" class="pane"></div></section>
 
 <div id="controls">
   <div id="status">talk to the scout, or pull a batch of jokes</div>
@@ -241,6 +246,8 @@
     <input id="textInput" placeholder="direct the scout — 'more puns', 'work jokes'… or just talk" />
     <button id="sendText">send</button>
   </div>
+</div>
+</div>
 </div>
 
 <div id="zoom">
@@ -373,7 +380,7 @@ function renderJoke(j) {
       prod.onclick = () => { jokesCache = jokesCache || { accepted: [j] }; startProduction(j.id); };
       actions.append(prod);
     }
-    loadCounts(); refreshJokes();
+    loadCounts(); refreshJokes(); refreshVaultQuiet();
   };
   keep.onclick = () => decide('accepted');
   toss.onclick = () => decide('rejected');
@@ -516,6 +523,13 @@ async function loadVault() {
   document.getElementById('nProd').textContent = `(${d.accepted.filter(j => j.produced).length})`;
   document.getElementById('nTossed').textContent = `(${d.rejected.length})`;
   renderVault();
+}
+
+// vault is a persistent sidebar on wide screens — refresh it on state changes,
+// but never mid-edit (a textarea in the list means someone is typing)
+function refreshVaultQuiet() {
+  if (vaultList.querySelector('textarea')) return;
+  loadVault();
 }
 
 const RENDER_ACTIVE = new Set(['running', 'awaiting_scene', 'awaiting_publish', 'awaiting_fallback']);
@@ -1284,6 +1298,7 @@ function ensurePolling() {
     const j = currentJoke();
     if (sigOf(j) === prevSig) return;
     renderStage(); // update in place — never teleport the director; the nav dots flag waiting gates
+    refreshVaultQuiet(); // sidebar mirrors the joke's render status
   }, 5000);
 }
 
@@ -1346,6 +1361,7 @@ document.getElementById('logout').onclick = async () => {
 };
 
 loadTranscript();
+loadVault();
 refreshJokes().then(() => {
   const j = currentJoke();
   if (j && j.render && RENDER_ACTIVE.has(j.render.status)) startProduction(j.id); // pick up where we left off
