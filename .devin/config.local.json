@@ -48,7 +48,8 @@
       "Exec(scutil)",
       "Exec(open)",
       "Exec(sed)",
-      "Exec(wc)"
+      "Exec(wc)",
+      "Exec(defaults read)"
     ]
   }
 }
