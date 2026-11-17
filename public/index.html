@@ -904,6 +904,7 @@ function renderImage() {
     if (r.step === 'stills' && (r.scenes || []).length) { renderStillGate(imagePane, j, true); return; }
     imagePane.appendChild(workingEl(`${r.step} in progress…`));
     tickLine(imagePane, j);
+    if (r.prompt) imagePane.appendChild(promptCard(r));
     return;
   }
   if (r.sceneUrl) {
@@ -1165,7 +1166,7 @@ function lockRow(j, reveal) {
 // read-only view of the prompts already sent to the render — visible while the run cooks
 function promptCard(r, label) {
   const wrap = document.createElement('div'); wrap.className = 'rform';
-  const lp = document.createElement('div'); lp.className = 'flabel'; lp.textContent = label || 'scene prompt — sent to the video model';
+  const lp = document.createElement('div'); lp.className = 'flabel'; lp.textContent = label || 'scene prompt — sent for this run';
   const ta = document.createElement('textarea'); ta.rows = 4; ta.value = r.prompt || ''; ta.readOnly = true;
   const lm = document.createElement('div'); lm.className = 'flabel'; lm.textContent = 'movement direction';
   const mo = document.createElement('textarea'); mo.rows = 2; mo.value = r.motion || ''; mo.readOnly = true;
