@@ -1305,6 +1305,9 @@ function renderVideo() {
       };
     }
     if (r.status === 'done') {
+      // every take for this joke — the one that shipped is outlined
+      const shipped = r.publishedFile || (r.captionTemplate ? (r.ccFile || 'final-captioned.mp4') : (r.workFile || 'final.mp4'));
+      videoPane.appendChild(takesGrid(r, shipped, null, false));
       videoPane.appendChild(hintEl('✓ live in the gallery — locked'));
       const a = document.createElement('a'); a.className = 'watch'; a.href = '/clips'; a.target = '_blank'; a.textContent = 'see it on the wall ↗';
       const nx = document.createElement('button'); nx.textContent = 'next joke →';

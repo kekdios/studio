@@ -888,6 +888,7 @@ async function jobPublish(job, joke, variant) {
   const cc = job.ccFile || 'final-captioned.mp4';
   const allowed = new Set(['final.mp4', 'final-edited.mp4', cc]);
   const ver = allowed.has(variant) && fs.existsSync(path.join(jobDir(job), variant)) ? variant : work;
+  job.publishedFile = ver;
   const captioned = ver === cc;
   const mp4 = clipId + '.mp4', poster = clipId + '.jpg';
   fs.copyFileSync(path.join(jobDir(job), ver), path.join(CLIPS_DIR, mp4));
