@@ -16,7 +16,7 @@ const TRANSCRIPT = path.join(SESSION_DIR, 'transcript.jsonl');
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 
 const app = express();
-app.set('trust proxy', true);
+app.set('trust proxy', 'loopback');
 app.use((req, res, next) => { if (req.method === 'POST') console.log(`POST ${req.path} @${new Date().toISOString().slice(11, 19)}`); next(); });
 app.use(express.json({ limit: '5mb' }));
 
@@ -583,7 +583,7 @@ app.post('/api/jokes/speak', async (req, res) => {
   try {
     const joke = findJoke(req.body?.id);
     if (!joke) return res.status(404).json({ error: 'joke not found' });
-    if (joke.audio) return res.json({ audioUrl: joke.audio });
+    if (joke.audio && fs.existsSync(path.join(JF_AUDIO, path.basename(joke.audio)))) return res.json({ audioUrl: joke.audio });
     const audioFile = path.basename(jobAudioPath(joke));
     fs.writeFileSync(path.join(JF_AUDIO, audioFile), await ng.speak(joke.text, MODELS.tts, TTS_VOICE));
     joke.audio = `/joke-audio/${audioFile}`;
@@ -720,7 +720,7 @@ async function jobVoice(job, joke) {
   if (!fs.existsSync(audioPath)) {
     fs.writeFileSync(audioPath, await ng.speak(joke.text, MODELS.tts, TTS_VOICE));
     const hit = findInStores(joke.id);
-    if (hit) { hit.list[hit.i].audio = `/joke-audio/joke-${joke.id}.mp3`; stores[hit.name].save(hit.list); }
+    if (hit) { hit.list[hit.i].audio = `/joke-audio/${path.basename(audioPath)}`; stores[hit.name].save(hit.list); }
   }
   const secs = probeDuration(audioPath);
   if (secs < 2)
