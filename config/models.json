@@ -7,6 +7,7 @@
   "avatar_video": "bytedance/omnihuman/v2",
   "avatar_video_fallback": "longcat-avatar-1.5",
   "joke_lab": "x-ai/grok-4.7:online",
+  "prompt_draft_fallback": "deepseek/deepseek-v4.1-flash-1017-uncensored",
   "video_captioner": "ai-video-editor/video-captioner",
   "video_edit": "grok-imagine-video-edit",
   "video_edit_long": "bytedance-seedance-2-0-fast-video-edit",

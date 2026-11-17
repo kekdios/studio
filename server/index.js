@@ -626,8 +626,8 @@ const scenePrompt = (setting, orient, framing = 'full-body') => {
   return `Put ${JACOB_FACE}, wearing ${f.must} exactly identical, standing in ${setting || DEFAULT_SETTING}. He faces the camera straight on, deadpan, ${f.shot}, cinematic realism, ${ORIENT_WORDS[orient] || ORIENT_WORDS['9:16']} framing.${f.never ? ' ' + f.never : ''}`;
 };
 
-// the producer brain drafts scene + motion from the joke itself; director edits before any spend
-// some brains refuse edgy jokes — fall back to the joke lab model before giving up
+// the joke lab drafts scene + motion from the joke itself; director edits before any spend
+// edgy jokes trip refusals — an uncensored model is the last-ditch drafter
 async function aiPrompt(joke, settingHint, orient, framing) {
   const words = ORIENT_WORDS[orient] || ORIENT_WORDS['9:16'];
   const f = FRAMINGS[framing] || FRAMINGS['full-body'];
@@ -644,7 +644,7 @@ scene: continue the identity clause with " standing in <SETTING THAT VISUALIZES 
 motion: ONE short animation direction for an audio-driven talking-avatar model. He tells the joke deadpan to camera, plus ONE concrete gesture timed to a word or object in THIS joke (point at it, look down at it, hold it up, glance behind him). Small and natural, static camera. One or two sentences, plain text.` },
     { role: 'user', content: `Joke: ${joke.text}${settingHint ? `\nSetting the director suggested: ${settingHint} — use or adapt it.` : '\nPick whichever setting suits the joke best.'}` },
   ];
-  const models = [...new Set([MODELS.producer_brain, MODELS.joke_lab].map(m => (m || '').replace(/:online.*$/, '')))].filter(Boolean);
+  const models = [...new Set([MODELS.joke_lab, MODELS.prompt_draft_fallback].map(m => (m || '').replace(/:online.*$/, '')))].filter(Boolean);
   for (const model of models) {
     try {
       const r = await ng.chat(messages, model);
