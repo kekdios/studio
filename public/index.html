@@ -931,6 +931,7 @@ function renderImage() {
       const im = document.createElement('img'); im.className = 'sceneBig'; im.src = r.sceneUrl; imagePane.appendChild(im);
     }
   }
+  if (r.status === 'running' || r.status === 'awaiting_publish' || r.status === 'done') imagePane.appendChild(promptCard(r));
   imagePane.appendChild(hintEl('still locked ✓ — this joke is at the video step'));
 }
 
@@ -1161,6 +1162,17 @@ function lockRow(j, reveal) {
   return b;
 }
 
+// read-only view of the prompts already sent to the render — visible while the run cooks
+function promptCard(r, label) {
+  const wrap = document.createElement('div'); wrap.className = 'rform';
+  const lp = document.createElement('div'); lp.className = 'flabel'; lp.textContent = label || 'scene prompt — sent to the video model';
+  const ta = document.createElement('textarea'); ta.rows = 4; ta.value = r.prompt || ''; ta.readOnly = true;
+  const lm = document.createElement('div'); lm.className = 'flabel'; lm.textContent = 'movement direction';
+  const mo = document.createElement('textarea'); mo.rows = 2; mo.value = r.motion || ''; mo.readOnly = true;
+  wrap.append(lp, ta, lm, mo);
+  return wrap;
+}
+
 // VIDEO stage: watch → publish or bin
 function renderVideo() {
   const j = currentJoke();
@@ -1176,6 +1188,7 @@ function renderVideo() {
         : r.step === 'edit' ? `${r.editModel || ((r.videoSecs || r.audioSecs || 0) > 8 ? 'seedance' : 'grok')} is re-cutting the take…`
         : 'video agent is generating your video'));
       tickLine(videoPane, j);
+      videoPane.appendChild(promptCard(r));
       // keep the existing versions visible as small thumbs while a post-step runs — the take isn't gone, it's being worked on
       if (['edit', 'caption'].includes(r.step)) videoPane.appendChild(takesGrid(r, null, null, true));
     }
