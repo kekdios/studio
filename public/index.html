@@ -864,7 +864,31 @@ function renderImage() {
     tickLine(imagePane, j);
     return;
   }
-  if (r.sceneUrl) { const im = document.createElement('img'); im.className = 'sceneBig'; im.src = r.sceneUrl; imagePane.appendChild(im); }
+  if (r.sceneUrl) {
+    if ((r.scenes || []).length) {
+      // every still tied to this joke — the one picked for the render is outlined
+      const grid = document.createElement('div'); grid.className = 'vscenes';
+      (r.scenes || []).forEach((u, i) => {
+        const cell = document.createElement('div'); cell.className = 'scell';
+        const img = document.createElement('img');
+        img.src = u; img.loading = 'lazy'; img.alt = `still ${i + 1}`;
+        if (u === r.sceneUrl || i === r.pick) img.classList.add('pick');
+        img.onclick = () => {
+          zoomCtl = { scenes: r.scenes, i, dead: new Set(), picked: -1, viewOnly: true, onPick: () => {} };
+          paintZoom(); zoomEl.classList.add('open');
+        };
+        cell.appendChild(img);
+        if ((r.sceneBankIds || [])[i]) {
+          const tag = document.createElement('span'); tag.className = 'banktag'; tag.textContent = 'bank';
+          cell.appendChild(tag);
+        }
+        grid.appendChild(cell);
+      });
+      imagePane.appendChild(grid);
+    } else {
+      const im = document.createElement('img'); im.className = 'sceneBig'; im.src = r.sceneUrl; imagePane.appendChild(im);
+    }
+  }
   imagePane.appendChild(hintEl('still locked ✓ — this joke is at the video step'));
 }
 
@@ -947,6 +971,7 @@ function paintZoom() {
   zuseEl.textContent = z.dead.has(z.i) ? 'removed from bank' : isPicked ? '✓ picked — tap to unpick' : 'use this still';
   zuseEl.className = isPicked ? 'prod' : '';
   zuseEl.disabled = z.dead.has(z.i);
+  zuseEl.style.display = z.viewOnly ? 'none' : '';
 }
 function zoomStep(d) {
   const z = zoomCtl; if (!z || z.scenes.length < 2) return;
