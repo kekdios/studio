@@ -38,11 +38,11 @@
   .vrow.produced { border-color:#2d7a4f; }
   .vrow .vtxt { font-size:.9rem; line-height:1.45; margin-bottom:8px; white-space:pre-wrap; }
   .vrow .vflag { font-size:.68rem; color:#3ddc84; font-weight:600; }
-  .vrow .vbtns { display:flex; gap:6px; flex-wrap:wrap; }
-  .vrow .vbtns button { background:#1c1c26; border:1px solid #3a3a4a; color:#ccc; font-size:.72rem; padding:4px 10px; border-radius:6px; cursor:pointer; }
-  .vrow .vbtns button:hover { border-color:#666; color:#fff; }
-  .vrow .vbtns button.prod { border-color:#2d7a4f; color:#3ddc84; }
-  .vrow .vbtns button.del { border-color:#7a2d2d; }
+  .vbtns { display:flex; gap:6px; flex-wrap:wrap; }
+  .vbtns button { background:#1c1c26; border:1px solid #3a3a4a; color:#ccc; font-size:.72rem; padding:4px 10px; border-radius:6px; cursor:pointer; }
+  .vbtns button:hover { border-color:#666; color:#fff; }
+  .vbtns button.prod { border-color:#2d7a4f; color:#3ddc84; }
+  .vbtns button.del { border-color:#7a2d2d; }
   .vrow .vrender { font-size:.72rem; color:#e8b84b; margin-bottom:8px; }
   .vrow .vrender.err { color:#e2483d; }
   .vrow .vrender.ok { color:#3ddc84; }
@@ -104,7 +104,6 @@
   .vempty { text-align:center; color:#555; padding:40px 10px; font-size:.85rem; }
 
   #voiceCard { display:none; max-width:760px; width:100%; margin:0 auto; padding:12px 20px 0; flex:none; }
-  #voiceCard .vrow { cursor:default; }
   #voiceCard audio { width:100%; height:36px; }
   #transcript { flex:1; overflow-y:auto; overscroll-behavior:contain; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:760px; width:100%; margin:0 auto; }
   .turn { max-width:85%; padding:10px 14px; border-radius:14px; line-height:1.45; font-size:.95rem; white-space:pre-wrap; }
@@ -146,8 +145,8 @@
   .pane { flex:1; overflow-y:auto; overscroll-behavior:contain; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:640px; width:100%; margin:0 auto; }
   .pane .phint { color:#777; font-size:.85rem; }
   .pane .phint.big { text-align:center; padding:60px 20px; font-size:.95rem; }
-  .pane .pjoke { background:#16161f; border:1px solid #2a2a3a; border-radius:12px; padding:12px 14px; font-size:.9rem; line-height:1.45; }
-  .pane .pjoke .ptag { font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; color:#e8b84b; margin-bottom:6px; }
+  .pjoke { background:#16161f; border:1px solid #2a2a3a; border-radius:12px; padding:12px 14px; font-size:.9rem; line-height:1.45; }
+  .pjoke .ptag { font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; color:#e8b84b; margin-bottom:6px; }
   .pane .picklist { display:flex; flex-direction:column; gap:8px; }
   .pane .pickrow { background:#16161f; border:1px solid #2a2a3a; border-radius:10px; padding:10px 12px; font-size:.82rem; display:flex; gap:10px; align-items:center; cursor:pointer; }
   .pane .pickrow:hover { border-color:#555; }
@@ -748,9 +747,7 @@ function renderVoiceCard() {
   voiceCardEl.innerHTML = '';
   if (!j) { voiceCardEl.style.display = 'none'; return; }
   voiceCardEl.style.display = '';
-  const card = document.createElement('div'); card.className = 'vrow';
-  const txt = document.createElement('div'); txt.className = 'vtxt'; txt.textContent = j.text;
-  card.appendChild(txt);
+  const card = jokeCard(j, 'voice');
   const row = document.createElement('div'); row.className = 'vbtns';
   if (j.audio) {
     const a = document.createElement('audio');
