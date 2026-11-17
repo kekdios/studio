@@ -143,8 +143,8 @@
   #workOn { margin-left:auto; font-size:.72rem; color:#777; max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #dbgBtn { display:none; }
   .pane { flex:1; overflow-y:auto; overscroll-behavior:contain; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:640px; width:100%; margin:0 auto; }
-  .pane .phint { color:#777; font-size:.85rem; }
-  .pane .phint.big { text-align:center; padding:60px 20px; font-size:.95rem; }
+  .phint { color:#777; font-size:.85rem; }
+  .phint.big { text-align:center; padding:60px 20px; font-size:.95rem; }
   .pjoke { background:#16161f; border:1px solid #2a2a3a; border-radius:12px; padding:12px 14px; font-size:.9rem; line-height:1.45; }
   .pjoke .ptag { font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; color:#e8b84b; margin-bottom:6px; }
   .pane .picklist { display:flex; flex-direction:column; gap:8px; }
@@ -658,8 +658,9 @@ const imagePane = document.getElementById('imagePane');
 const videoPane = document.getElementById('videoPane');
 
 function currentJoke() {
-  if (!currentId || !jokesCache) return null;
-  return [...(jokesCache.accepted || []), ...(jokesCache.pending || []), ...(jokesCache.rejected || [])]
+  if (!currentId) return null;
+  const src = jokesCache || vaultData;
+  return [...(src.accepted || []), ...(src.pending || []), ...(src.rejected || [])]
     .find(j => j.id === currentId) || null;
 }
 const sigOf = j => j?.render ? `${j.render.status}:${j.render.step || ''}:${(j.render.scenes || []).length}` : '';
@@ -697,7 +698,10 @@ const atVideoStep = r => r && (r.status === 'awaiting_publish' || r.status === '
   || (['error', 'interrupted'].includes(r.status) && ['render', 'caption', 'edit'].includes(r.step)));
 
 async function refreshJokes() {
-  try { jokesCache = await (await fetch('/api/jokes')).json(); } catch { return; }
+  try {
+    const d = await (await fetch('/api/jokes')).json();
+    if (d && Array.isArray(d.accepted)) jokesCache = d; else return;
+  } catch { return; }
   setKept(jokesCache.accepted.length);
   updateNav();
 }
@@ -745,8 +749,13 @@ const voiceCardEl = document.getElementById('voiceCard');
 function renderVoiceCard() {
   const j = currentJoke();
   voiceCardEl.innerHTML = '';
-  if (!j) { voiceCardEl.style.display = 'none'; return; }
   voiceCardEl.style.display = '';
+  if (!j) {
+    const h = document.createElement('div'); h.className = 'phint';
+    h.textContent = 'pick a joke in the vault — its voice read lives here';
+    voiceCardEl.appendChild(h);
+    return;
+  }
   const card = jokeCard(j, 'voice');
   const row = document.createElement('div'); row.className = 'vbtns';
   if (j.audio) {
@@ -1443,6 +1452,7 @@ document.getElementById('logout').onclick = async () => {
 loadTranscript();
 loadVault();
 refreshJokes().then(() => {
+  renderStage(); // paint the voice card + correct pane for any persisted selection
   const j = currentJoke();
   if (j && j.render && RENDER_ACTIVE.has(j.render.status)) startProduction(j.id); // pick up where we left off
 });
