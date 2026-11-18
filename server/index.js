@@ -620,7 +620,7 @@ const FRAMINGS = {
 const ORIENTS = { vertical: '9:16', horizontal: '16:9' };
 const ORIENT_WORDS = { '9:16': 'vertical 9:16', '16:9': 'horizontal 16:9' };
 const DEFAULT_SETTING = 'a dim concrete multi-storey car park at night, lit by cold fluorescent strips';
-const DEFAULT_MOTION = 'The man tells the joke straight to camera, deadpan. Small natural head movements and one small hand gesture, static camera.';
+const DEFAULT_MOTION = 'The man tells the joke straight to camera. Natural head movements and one hand gesture, static camera.';
 const scenePrompt = (setting, orient, framing = 'full-body') => {
   const f = FRAMINGS[framing] || FRAMINGS['full-body'];
   return `Put ${JACOB_FACE}, wearing ${f.must} exactly identical, standing in ${setting || DEFAULT_SETTING}. He faces the camera straight on, deadpan, ${f.shot}, cinematic realism, ${ORIENT_WORDS[orient] || ORIENT_WORDS['9:16']} framing.${f.never ? ' ' + f.never : ''}`;
@@ -641,7 +641,7 @@ Output JSON only, no other text: {"scene": "...", "motion": "..."}
 
 scene: continue the identity clause with " standing in <SETTING THAT VISUALIZES THE JOKE>" — the place and objects the joke is ABOUT should appear around him (library shelves for a librarian joke, a shoe shop for a shoes joke). He faces the camera straight on, mid-delivery, deadpan. Frame: ${f.shot}.${f.never ? ' ' + f.never : ''} End with ", cinematic realism, ${words} framing." One paragraph, plain text, no quotes inside.
 
-motion: ONE short animation direction for an audio-driven talking-avatar model. He tells the joke deadpan to camera, plus ONE concrete gesture timed to a word or object in THIS joke (point at it, look down at it, hold it up, glance behind him). Small and natural, static camera. One or two sentences, plain text.` },
+motion: ONE short animation direction for an audio-driven talking-avatar model. He tells the joke to camera, plus ONE concrete gesture timed to a word or object in THIS joke (point at it, look down at it, hold it up, glance behind him). Natural, static camera. One or two sentences, plain text.` },
     { role: 'user', content: `Joke: ${joke.text}${settingHint ? `\nSetting the director suggested: ${settingHint} — use or adapt it.` : '\nPick whichever setting suits the joke best.'}` },
   ];
   const models = [...new Set([MODELS.prompt_draft_fallback, MODELS.joke_lab].map(m => (m || '').replace(/:online.*$/, '')))].filter(Boolean);
