@@ -753,16 +753,17 @@ async function jobScenes(job) {
   saveRenderJobs();
   const dir = jobDir(job);
   for (const f of fs.readdirSync(dir)) if (f.startsWith('scene-')) fs.rmSync(path.join(dir, f), { force: true });
+  const gen = (job.sceneGen || 0) + 1; job.sceneGen = gen; // versioned filenames — same URLs would serve stale browser-cached stills
   const results = await Promise.allSettled([1, 2, 3, 4].map(i =>
     ng.imageGen(MODELS.scene_image, job.prompt,
       { input_references: [ng.dataUrl(JACOB_FRONT)], aspect_ratio: job.orientation || '9:16', resolution: '1k' })
-      .then(bufs => fs.writeFileSync(path.join(dir, `scene-${i}.png`), bufs[0]))));
+      .then(bufs => fs.writeFileSync(path.join(dir, `scene-${gen}-${i}.png`), bufs[0]))));
   const ok = results.filter(r => r.status === 'fulfilled').length;
   rlog(`${job.id} stills ${ok}/4 generated`);
   results.forEach((r, i) => { if (r.status === 'rejected') rlog(`${job.id} still ${i + 1} failed: ${r.reason?.message}`); });
   if (!ok) throw new Error('all 4 stills failed: ' + (results[0].reason?.message || 'unknown'));
   job.scenes = [1, 2, 3, 4]
-    .map(i => fs.existsSync(path.join(dir, `scene-${i}.png`)) ? `/renders-media/${job.id}/scene-${i}.png` : null)
+    .map(i => fs.existsSync(path.join(dir, `scene-${gen}-${i}.png`)) ? `/renders-media/${job.id}/scene-${gen}-${i}.png` : null)
     .filter(Boolean);
 }
 
